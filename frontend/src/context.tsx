@@ -8,8 +8,6 @@ interface Workspace {
   openSource: (source: Source) => void
   openDocument: (id: string) => void
   openAnalysis: () => void
-  openFinding: (id: string) => void
-  findingId: string | null
   notify: (text: string, error?: boolean) => void
   search: string
   setSearch: (value: string) => void

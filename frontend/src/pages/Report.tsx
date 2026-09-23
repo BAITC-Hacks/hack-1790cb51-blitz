@@ -80,32 +80,7 @@ export default function Report() {
           </section>
           <section>
             <h2>
-              <span>02</span>Изменения подразделений
-            </h2>
-            {result.departments.map((d) => (
-              <div className="report-department" key={d.name}>
-                <strong>{d.name}</strong>{' '}
-                <Badge type={d.status}>
-                  {d.status === 'retained'
-                    ? 'Сохранено'
-                    : d.status === 'created'
-                      ? 'Новое название'
-                      : statusLabels[d.status]}
-                </Badge>
-                <p>
-                  {d.targets.length
-                    ? `Преемники по функциям: ${d.targets.join(', ')}.`
-                    : 'Функциональный преемник в документах не найден.'}
-                </p>
-                {d.sources?.map((source) => (
-                  <SourceButton key={source.id} source={source} onOpen={openSource} />
-                ))}
-              </div>
-            ))}
-          </section>
-          <section>
-            <h2>
-              <span>03</span>Выявленные отклонения
+              <span>02</span>Выявленные отклонения
             </h2>
             {result.findings.length ? (
               result.findings.map((f, i) => (
@@ -140,7 +115,7 @@ export default function Report() {
           </section>
           <section>
             <h2>
-              <span>04</span>Методология и ограничения
+              <span>03</span>Методология и ограничения
             </h2>
             <p>{result.methodology}</p>
             {result.warnings.map((w) => (
@@ -175,7 +150,7 @@ export default function Report() {
               </b>{' '}
               замечаний проверено
             </p>
-            <button className="button secondary" onClick={() => navigate('findings')}>
+            <button className="button secondary" onClick={() => navigate('comparison')}>
               <CheckCheck size={16} />
               Проверить замечания
             </button>

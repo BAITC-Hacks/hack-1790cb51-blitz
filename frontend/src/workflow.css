@@ -397,6 +397,101 @@
     font-size: 11px;
   }
 }
+.comparison-table th:last-child,
+.comparison-table td:last-child {
+  width: 26%;
+  min-width: 220px;
+}
+.row-findings {
+  display: grid;
+  gap: 10px;
+  margin-top: 15px;
+}
+.section-context {
+  margin: 10px 0;
+  font-size: 12px;
+  color: #68756c;
+}
+.section-context summary {
+  cursor: pointer;
+  color: var(--green-dark);
+}
+.section-context p {
+  border-left: 2px solid #c8dfcf;
+  padding-left: 10px;
+  margin: 8px 0;
+  line-height: 1.6;
+}
+.linked-finding {
+  display: grid;
+  gap: 7px;
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #e5d6b8;
+  border-radius: 10px;
+  background: #fffaf0;
+  text-align: left;
+  line-height: 1.5;
+}
+.linked-finding:hover {
+  border-color: #a98540;
+  background: #fff5dd;
+}
+.linked-finding > span {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  color: #826021;
+  font-size: 11px;
+}
+.linked-finding strong {
+  font-size: 12px;
+  font-weight: 550;
+  overflow-wrap: anywhere;
+}
+.linked-finding small {
+  color: #68756c;
+  font-size: 11px;
+}
+.linked-finding.confirmed {
+  background: #edf5ef;
+  border-color: #c8dfcf;
+}
+.linked-finding.dismissed {
+  background: #f5f6f5;
+  border-color: #dce2de;
+}
+.unlinked-findings {
+  margin-top: 18px;
+  padding: 22px;
+}
+.unlinked-findings > p {
+  margin: 8px 0 16px;
+  color: #68756c;
+}
+.unlinked-findings > div {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+}
+.drawer .finding-detail {
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+.drawer .finding-detail-head h2 {
+  margin-top: 16px;
+}
+@media (max-width: 720px) {
+  .comparison-table td:last-child {
+    width: 100%;
+    min-width: 0;
+  }
+  .table-toolbar .select-field,
+  .table-toolbar .select-field select {
+    width: 100%;
+  }
+}
 @media print {
   .workflow-header,
   .workflow-steps,

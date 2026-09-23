@@ -1,22 +1,16 @@
-import { Building2, FileCheck2, GitCompareArrows, ShieldAlert } from 'lucide-react'
+import { FileCheck2, GitCompareArrows } from 'lucide-react'
 import { useWorkspace } from '../context'
 import { ExportMenu, PageTitle } from '../components/UI'
 import type { ResultSection } from '../workflow'
 import Comparison from './Comparison'
-import Findings from './Findings'
-import Structure from './Structure'
 import Report from './Report'
 
 const sections = [
-  { id: 'findings', label: 'Замечания', icon: ShieldAlert },
-  { id: 'comparison', label: 'Функции', icon: GitCompareArrows },
-  { id: 'structure', label: 'Подразделения', icon: Building2 },
+  { id: 'comparison', label: 'Функции и замечания', icon: GitCompareArrows },
   { id: 'report', label: 'Заключение', icon: FileCheck2 },
 ] as const
 const contents = {
-  findings: Findings,
   comparison: Comparison,
-  structure: Structure,
   report: Report,
 }
 export default function Results({ section }: { section: ResultSection }) {

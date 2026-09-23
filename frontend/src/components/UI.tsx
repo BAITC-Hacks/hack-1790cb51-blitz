@@ -1,6 +1,6 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { ArrowRight, Check, ChevronRight, Download, FileText, LoaderCircle, X } from 'lucide-react'
-import type { Source } from '../types'
+import type { Segment, Source } from '../types'
 
 export const statusLabels = {
   retained: 'Сохранена',
@@ -98,6 +98,17 @@ export function SourceButton({
       </span>
       <ChevronRight size={14} />
     </button>
+  )
+}
+export function SectionContext({ source }: { source: Segment }) {
+  if (!source.section_path?.length) return null
+  return (
+    <details className="section-context">
+      <summary>Контекст раздела</summary>
+      {source.section_path.map((heading) => (
+        <p key={heading.id}>{heading.text}</p>
+      ))}
+    </details>
   )
 }
 export function Modal({

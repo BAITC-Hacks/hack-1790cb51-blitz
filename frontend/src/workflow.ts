@@ -1,6 +1,6 @@
 import type { Project } from './types'
 export type Step = 'documents' | 'analysis' | 'results'
-export type ResultSection = 'findings' | 'comparison' | 'structure' | 'report'
+export type ResultSection = 'comparison' | 'report'
 export interface Route {
   step: Step
   section: ResultSection
@@ -13,12 +13,12 @@ export function readRoute(hash: string): Route {
   const value = hash.replace(/^#/, '')
   const section = value.replace(/^results\//, '')
   if (['findings', 'comparison', 'structure', 'report'].includes(section))
-    return { step: 'results', section: section as ResultSection }
-  if (value === 'results' || value === 'overview') return { step: 'results', section: 'findings' }
-  return { step: value === 'analysis' ? 'analysis' : 'documents', section: 'findings' }
+    return { step: 'results', section: section === 'report' ? 'report' : 'comparison' }
+  if (value === 'results' || value === 'overview') return { step: 'results', section: 'comparison' }
+  return { step: value === 'analysis' ? 'analysis' : 'documents', section: 'comparison' }
 }
 export function routeHash(route: Route): string {
-  return route.step === 'results' && route.section !== 'findings'
+  return route.step === 'results' && route.section !== 'comparison'
     ? `results/${route.section}`
     : route.step
 }

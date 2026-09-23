@@ -1,11 +1,4 @@
-export type View =
-  | 'documents'
-  | 'analysis'
-  | 'results'
-  | 'comparison'
-  | 'structure'
-  | 'findings'
-  | 'report'
+export type View = 'documents' | 'analysis' | 'results' | 'comparison' | 'findings' | 'report'
 export type Phase = 'before' | 'after'
 export interface Segment {
   id: string
@@ -13,6 +6,8 @@ export interface Segment {
   locator: string
   department: string
   is_function: boolean
+  is_section_heading?: boolean
+  section_path?: { id: string; text: string }[]
   manual?: boolean
 }
 export interface Source extends Segment {

@@ -1,33 +1,42 @@
 import { useMemo, useState } from 'react'
-import { ArrowRight, Filter, Search, Sparkles } from 'lucide-react'
+import { ArrowRight, Filter, Search, Sparkles, ShieldAlert } from 'lucide-react'
 import { useWorkspace } from '../context'
-import { Badge, Empty, PageTitle, SourceButton, statusLabels } from '../components/UI'
-import type { Mapping } from '../types'
+import {
+  Badge,
+  Empty,
+  Modal,
+  PageTitle,
+  SectionContext,
+  SourceButton,
+  statusLabels,
+  kindLabels,
+} from '../components/UI'
+import FindingReview from '../components/FindingReview'
+import { linkFindings } from '../findingLinks'
+import type { Finding, Mapping } from '../types'
 
 export default function Comparison() {
   const { project, openSource, search, setSearch, navigate } = useWorkspace()
   const [status, setStatus] = useState('all'),
-    [department, setDepartment] = useState('all')
+    [review, setReview] = useState('all')
+  const [selected, setSelected] = useState<string | null>(null)
   const [page, setPage] = useState(0)
   const rows = project.result?.mapping || []
-  const departments = [
-    ...new Set(
-      rows
-        .flatMap((r) => [r.before?.department, ...r.after.map((a) => a.source.department)])
-        .filter(Boolean),
-    ),
-  ] as string[]
+  const findings = project.result?.findings || []
+  const { byRow, unlinked } = useMemo(() => linkFindings(rows, findings), [rows, findings])
+  const active = findings.find((f) => f.id === selected)
   const filtered = useMemo(
     () =>
       rows.filter(
         (r) =>
           (status === 'all' || r.status === status) &&
-          (department === 'all' ||
-            r.before?.department === department ||
-            r.after.some((a) => a.source.department === department)) &&
-          JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
+          (review === 'all' ||
+            (byRow.get(r.id) || []).some((f) => review === 'any' || f.status === review)) &&
+          JSON.stringify([r, byRow.get(r.id)])
+            .toLowerCase()
+            .includes(search.toLowerCase()),
       ),
-    [rows, status, department, search],
+    [rows, status, review, search, byRow],
   )
   const current = Math.min(page, Math.max(0, Math.ceil(filtered.length / 12) - 1))
   if (!project.result)
@@ -43,6 +52,23 @@ export default function Comparison() {
         }
       />
     )
+  function findingButton(finding: Finding) {
+    return (
+      <button
+        key={finding.id}
+        className={`linked-finding ${finding.status}`}
+        onClick={() => setSelected(finding.id)}
+        aria-label={`${kindLabels[finding.kind]}: ${finding.title}`}
+      >
+        <span>
+          <ShieldAlert size={15} />
+          {kindLabels[finding.kind]}
+        </span>
+        <strong>{finding.title}</strong>
+        <small>{statusLabels[finding.status]} · Открыть</small>
+      </button>
+    )
+  }
   function rowContent(row: Mapping) {
     return (
       <tr key={row.id}>
@@ -51,6 +77,7 @@ export default function Comparison() {
             <>
               <div className="department-label">{row.before.department}</div>
               <p className="function-text">{row.before.text}</p>
+              <SectionContext source={row.before} />
               <SourceButton source={row.before} onOpen={openSource} compact />
             </>
           ) : (
@@ -63,6 +90,7 @@ export default function Comparison() {
               <div className="matched-function" key={a.source.id}>
                 <div className="department-label">{a.source.department}</div>
                 <p className="function-text">{a.source.text}</p>
+                <SectionContext source={a.source} />
                 <div className="match-source">
                   <SourceButton source={a.source} onOpen={openSource} compact />
                   {row.before && (
@@ -109,6 +137,10 @@ export default function Comparison() {
               <p>{row.reason}</p>
             </details>
           )}
+          <div className="row-findings">
+            {(byRow.get(row.id) || []).map(findingButton)}
+            {!byRow.get(row.id)?.length && <small className="muted">Замечаний не выявлено</small>}
+          </div>
         </td>
       </tr>
     )
@@ -117,9 +149,14 @@ export default function Comparison() {
     <>
       <PageTitle
         secondary
-        title="Сопоставление функций"
-        description="Проследите каждую функцию от исходного подразделения к новому владельцу."
-      />
+        title="Функции и замечания"
+        description="Сравните пункты до и после. Замечания рядом с функцией открывают обоснование и решение проверяющего."
+      >
+        <span className="reviewed-counter">
+          {findings.filter((f) => f.status !== 'pending').length} из {findings.length} замечаний
+          проверено
+        </span>
+      </PageTitle>
       <div className="filter-tabs">
         {(['all', 'retained', 'transferred', 'lost', 'new'] as const).map((s) => (
           <button
@@ -140,7 +177,7 @@ export default function Comparison() {
           <label className="search-field">
             <Search size={17} />
             <input
-              placeholder="Найти функцию или подразделение"
+              placeholder="Найти функцию или замечание"
               aria-label="Поиск функций"
               value={search}
               onChange={(e) => {
@@ -152,17 +189,18 @@ export default function Comparison() {
           <label className="select-field">
             <Filter size={15} />
             <select
-              aria-label="Фильтр подразделений"
-              value={department}
+              aria-label="Фильтр замечаний"
+              value={review}
               onChange={(e) => {
-                setDepartment(e.target.value)
+                setReview(e.target.value)
                 setPage(0)
               }}
             >
-              <option value="all">Все подразделения</option>
-              {departments.map((d) => (
-                <option key={d}>{d}</option>
-              ))}
+              <option value="all">Все функции</option>
+              <option value="any">С замечаниями</option>
+              <option value="pending">На проверке</option>
+              <option value="confirmed">Подтверждённые замечания</option>
+              <option value="dismissed">Отклонённые замечания</option>
             </select>
           </label>
         </div>
@@ -176,7 +214,7 @@ export default function Comparison() {
                 <th>
                   <span className="phase-small green">02</span>После реорганизации
                 </th>
-                <th>Результат</th>
+                <th>Результат и замечания</th>
               </tr>
             </thead>
             <tbody>{filtered.slice(current * 12, current * 12 + 12).map(rowContent)}</tbody>
@@ -191,7 +229,7 @@ export default function Comparison() {
                 className="button secondary"
                 onClick={() => {
                   setSearch('')
-                  setDepartment('all')
+                  setReview('all')
                   setStatus('all')
                 }}
               >
@@ -225,10 +263,22 @@ export default function Comparison() {
           </div>
         </div>
       </section>
+      {!!unlinked.length && (
+        <section className="panel unlinked-findings">
+          <h3>Другие замечания по документам</h3>
+          <p>Эти замечания не связаны со строками сопоставления и требуют отдельной проверки.</p>
+          <div>{unlinked.map(findingButton)}</div>
+        </section>
+      )}
       <p className="footnote">
         GPT-5 сопоставляет обязанности по смыслу. Проценты ближайших фрагментов — только сходство
         текста, не уверенность модели. Проверяйте исходные пункты перед принятием решения.
       </p>
+      {active && (
+        <Modal drawer title="Проверка замечания" close={() => setSelected(null)}>
+          <FindingReview key={active.id} active={active} />
+        </Modal>
+      )}
     </>
   )
 }

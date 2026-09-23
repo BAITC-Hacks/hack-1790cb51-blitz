@@ -100,6 +100,11 @@ export default function SourceViewer({
                   </button>
                 </div>
                 <p>{segment.text}</p>
+                {segment.is_section_heading && !segment.is_function && (
+                  <small className="paragraph-department">
+                    Заголовок раздела · контекст для вложенных пунктов
+                  </small>
+                )}
                 {segment.is_function && (
                   <small className="paragraph-department">
                     <Check size={12} />

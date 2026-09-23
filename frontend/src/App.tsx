@@ -45,7 +45,6 @@ export default function App() {
   const [confirmNew, setConfirmNew] = useState(false)
   const [source, setSource] = useState<{ id: string; highlight?: string } | null>(null)
   const [search, setSearch] = useState('')
-  const [findingId, setFindingId] = useState<string | null>(null)
   const [toasts, setToasts] = useState<{ id: number; text: string; error: boolean }[]>([])
   const activeId = useRef('')
   const mutation = useRef(false)
@@ -156,7 +155,6 @@ export default function App() {
       setProject(created)
       setSource(null)
       setSearch('')
-      setFindingId(null)
       setError('')
       setConfirmNew(false)
       navigate('documents')
@@ -271,11 +269,6 @@ export default function App() {
                 openSource,
                 openDocument: (id) => setSource({ id }),
                 openAnalysis: () => navigate('analysis'),
-                openFinding: (id) => {
-                  setFindingId(id)
-                  navigate('findings')
-                },
-                findingId,
                 notify,
                 search,
                 setSearch,
