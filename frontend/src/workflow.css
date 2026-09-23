@@ -407,6 +407,18 @@
   gap: 10px;
   margin-top: 15px;
 }
+.cancel-analysis {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  margin-top: 24px;
+  flex-wrap: wrap;
+}
+.cancel-analysis small {
+  color: #68756c;
+  line-height: 1.6;
+  max-width: 420px;
+}
 .section-context {
   margin: 10px 0;
   font-size: 12px;

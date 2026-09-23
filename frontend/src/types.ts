@@ -92,7 +92,8 @@ export interface Project {
   organization: string
   created_at: string
   is_demo: boolean
-  status: 'draft' | 'running' | 'completed' | 'failed'
+  status: 'draft' | 'running' | 'completed' | 'failed' | 'cancelled'
+  analysis_token?: string | null
   progress: number
   stage: string
   error: string | null

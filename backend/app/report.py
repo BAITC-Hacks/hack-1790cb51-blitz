@@ -108,8 +108,6 @@ def export_report(project, format):
                     f"После: {source['department']} · {source['text']} ({source['document_name']}, {source['locator']})",
                 )
             )
-    parts.extend([("h2", "Метод и ограничения"), ("p", result["methodology"])])
-    parts.extend(("p", warning) for warning in result["warnings"])
     if format == "md":
         markers = {"h1": "# ", "h2": "## ", "h3": "### ", "blockquote": "> ", "p": ""}
         return "\n\n".join(

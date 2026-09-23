@@ -47,6 +47,7 @@ export default function App() {
   const [search, setSearch] = useState('')
   const [toasts, setToasts] = useState<{ id: number; text: string; error: boolean }[]>([])
   const activeId = useRef('')
+  const refreshVersion = useRef(0)
   const mutation = useRef(false)
   const previousStatus = useRef<Project['status'] | undefined>(undefined)
   const step = project ? resolveStep(route.step, project) : 'documents'
@@ -67,8 +68,9 @@ export default function App() {
   const reload = useCallback(async () => {
     const id = activeId.current
     if (!id) return
+    const version = ++refreshVersion.current
     const detail = await api<Project>(`/projects/${id}`)
-    if (activeId.current === id) {
+    if (activeId.current === id && version === refreshVersion.current) {
       setProject(detail)
       setError('')
     }
@@ -125,14 +127,22 @@ export default function App() {
     mutation.current = true
     setBusy(true)
     try {
-      await api(`/projects/${project.id}/analyze`, {
+      const started = await api<{ analysis_token: string }>(`/projects/${project.id}/analyze`, {
         method: 'POST',
         body: JSON.stringify({ mode: 'gpt' }),
       })
       previousStatus.current = 'running'
+      refreshVersion.current++
       setProject((current) =>
         current
-          ? { ...current, status: 'running', progress: 1, stage: 'Подготовка анализа', error: null }
+          ? {
+              ...current,
+              status: 'running',
+              analysis_token: started.analysis_token,
+              progress: 1,
+              stage: 'Подготовка анализа',
+              error: null,
+            }
           : current,
       )
       navigate('analysis')
@@ -158,6 +168,45 @@ export default function App() {
       setError('')
       setConfirmNew(false)
       navigate('documents')
+    } catch (e) {
+      notify((e as Error).message, true)
+    } finally {
+      mutation.current = false
+      setBusy(false)
+    }
+  }
+  async function cancelAnalysis() {
+    if (!project || project.status !== 'running' || mutation.current || !project.analysis_token)
+      return
+    mutation.current = true
+    setBusy(true)
+    refreshVersion.current++
+    try {
+      const response = await api<{ status: Project['status'] }>(
+        `/projects/${project.id}/analyze/cancel`,
+        {
+          method: 'POST',
+          body: JSON.stringify({ analysis_token: project.analysis_token }),
+        },
+      )
+      refreshVersion.current++
+      if (response.status === 'cancelled') {
+        previousStatus.current = 'cancelled'
+        setProject((current) =>
+          current
+            ? {
+                ...current,
+                status: 'cancelled',
+                analysis_token: null,
+                progress: 0,
+                error: null,
+                stage: 'Анализ отменён',
+              }
+            : current,
+        )
+        notify('Анализ отменён. Документы сохранены.')
+      }
+      await reload()
     } catch (e) {
       notify((e as Error).message, true)
     } finally {
@@ -282,6 +331,7 @@ export default function App() {
                   <Analysis
                     busy={busy}
                     start={startAnalysis}
+                    cancel={cancelAnalysis}
                     refreshHealth={async () => {
                       try {
                         setHealth(await api<Health>('/health'))
@@ -308,7 +358,7 @@ export default function App() {
       </main>
       <footer className="workflow-footer">
         <span>ATLAS · HackAlem AI</span>
-        <span>Смысловой анализ · GPT-5</span>
+        <span>Смысловой анализ · GPT-5.6</span>
       </footer>
       <div className="toast-stack" aria-live="polite">
         {toasts.map((t) => (

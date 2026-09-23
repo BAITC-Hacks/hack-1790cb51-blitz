@@ -10,6 +10,7 @@ import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
 from .parser import DEPARTMENT, NUMBER, annotate_sections
+from .cancellation import post_response
 
 
 class StrictModel(BaseModel):
@@ -95,7 +96,7 @@ def configured():
 
 
 def model_name():
-    return "gpt-5"
+    return "gpt-5.6-sol"
 
 
 def request(schema, instruction, payload):
@@ -119,7 +120,7 @@ def request(schema, instruction, payload):
     if model_name().startswith("gpt-5"):
         body["reasoning"] = {"effort": "low"}
     try:
-        response = httpx.post(
+        response = post_response(
             "https://api.openai.com/v1/responses",
             headers={"Authorization": "Bearer " + os.environ["OPENAI_API_KEY"]},
             json=body,
@@ -140,7 +141,7 @@ def request(schema, instruction, payload):
         messages = {
             401: "Проверьте OPENAI_API_KEY на сервере.",
             429: "Достигнут лимит OpenAI. Проверьте баланс и лимиты проекта.",
-            404: "GPT-5 недоступна этому API-проекту. Проверьте доступ к модели.",
+            404: "GPT-5.6 недоступна этому API-проекту. Проверьте доступ к модели.",
         }
         raise ValueError(
             messages.get(
@@ -153,7 +154,7 @@ def request(schema, instruction, payload):
             "Не удалось получить ответ OpenAI. Проверьте соединение и повторите анализ."
         ) from exc
     except ValidationError as exc:
-        raise ValueError("GPT-5 вернула ответ неверного формата. Повторите анализ.") from exc
+        raise ValueError("GPT-5.6 вернула ответ неверного формата. Повторите анализ.") from exc
 
 
 def department_catalog(document):
@@ -227,7 +228,7 @@ def extract_batch(filename, segments, catalog, preceding_department):
         instruction += " Предыдущий ответ содержал пропуски/повторы или неверные ID. Проверь полное покрытие входных ID."
     else:
         raise ValueError(
-            "GPT-5 не смогла разметить все фрагменты текущей части после повторной проверки. Повторите анализ."
+            "GPT-5.6 не смогла разметить все фрагменты текущей части после повторной проверки. Повторите анализ."
         )
     return output.segments, usage
 
@@ -283,7 +284,7 @@ def extract_functions(document, progress=lambda done, total: None):
             segment["is_department"] = is_heading
     document["segments"][:] = segments
     if set(catalog) == {"filename"}:
-        warning = "Заголовок подразделения не найден: GPT-5 использует имя файла. Уточните название в разметке документа."
+        warning = "Заголовок подразделения не найден: GPT-5.6 использует имя файла. Уточните название в разметке документа."
         if warning not in document.setdefault("warnings", []):
             document["warnings"].append(warning)
     progress(len(parts), len(parts))
@@ -350,11 +351,11 @@ def compare(before, after, progress=lambda value, stage: None):
     def run(left, right, include_risks=True, cross_groups=None):
         nonlocal done
         stage = "проверка рисков между частями" if cross_groups else "сопоставление функций"
-        progress(30 + int(50 * done / total), f"GPT-5: {stage} · запрос {done + 1}/{total}")
+        progress(30 + int(50 * done / total), f"GPT-5.6: {stage} · запрос {done + 1}/{total}")
         try:
             output, consumed = compare_batch(left, right, include_risks, cross_groups)
         except ValueError as exc:
-            raise ValueError(f"GPT-5: {stage}, запрос {done + 1}/{total}: {exc}") from exc
+            raise ValueError(f"GPT-5.6: {stage}, запрос {done + 1}/{total}: {exc}") from exc
         add_usage(usage, consumed)
         done += 1
         if include_risks:

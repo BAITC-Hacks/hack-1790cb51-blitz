@@ -78,6 +78,13 @@ test('running analysis stays on the progress stage', () => {
 test('failed reruns cannot show stale successful results', () => {
   assert.equal(resolveStep('results', { ...draft, status: 'failed', result: {} }), 'analysis')
 })
+
+test('cancelled runs keep navigation available without showing stale results', () => {
+  const cancelled = { ...draft, status: 'cancelled', result: {} }
+  assert.equal(resolveStep('results', cancelled), 'analysis')
+  assert.equal(resolveStep('documents', cancelled), 'documents')
+  assert.equal(resolveStep('analysis', cancelled), 'analysis')
+})
 test('successful results and backward navigation remain available', () => {
   for (const step of ['documents', 'analysis', 'results'])
     assert.equal(resolveStep(step, { ...draft, status: 'completed', result: {} }), step)

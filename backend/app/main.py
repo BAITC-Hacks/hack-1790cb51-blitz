@@ -17,6 +17,7 @@ from .analysis import analyze
 from .parser import MAX_BYTES, extract
 from .storage import db, document_dict, initialize, now, pack, project_dict, uid
 from .report import export_report
+from .cancellation import AnalysisCancelled, cancellation_scope
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
@@ -44,16 +45,39 @@ def invalidate(conn, project_id):
     )
 
 
-def run_analysis(project_id):
+def require_active(conn, project_id, token):
+    row = conn.execute(
+        "SELECT status,analysis_token FROM projects WHERE id=?", (project_id,)
+    ).fetchone()
+    if not row or row["status"] != "running" or row["analysis_token"] != token:
+        raise AnalysisCancelled()
+
+
+def run_analysis(project_id, token):
+    def check():
+        with db() as conn:
+            require_active(conn, project_id, token)
+
+    try:
+        with cancellation_scope(check):
+            _run_analysis(project_id, token)
+    except AnalysisCancelled:
+        pass  # Cancellation already committed its state; never overwrite a newer run.
+
+
+def _run_analysis(project_id, token):
     def progress(value, stage):
         with db() as conn:
-            conn.execute(
-                "UPDATE projects SET progress=?,stage=? WHERE id=?",
-                (value, stage, project_id),
+            updated = conn.execute(
+                "UPDATE projects SET progress=?,stage=? WHERE id=? AND status='running' AND analysis_token=?",
+                (value, stage, project_id, token),
             )
+            if not updated.rowcount:
+                raise AnalysisCancelled()
 
     try:
         with db() as conn:
+            require_active(conn, project_id, token)
             project = get_project(conn, project_id)
             documents = [
                 document_dict(row, True)
@@ -69,7 +93,7 @@ def run_analysis(project_id):
             def extraction_progress(done, total):
                 progress(
                     10 + int(18 * (index + done / max(total, 1)) / len(documents)),
-                    f"GPT-5: документ {index + 1}/{len(documents)} · "
+                    f"GPT-5.6: документ {index + 1}/{len(documents)} · "
                     f"извлечение функций, часть {min(done + 1, total)}/{total}",
                 )
 
@@ -83,13 +107,15 @@ def run_analysis(project_id):
         result["revision"] = project["revision"]
         result["document_count"] = len(documents)
         with db() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            require_active(conn, project_id, token)
             for document in documents:
                 conn.execute(
                     "UPDATE documents SET segments=?,warnings=? WHERE id=?",
                     (pack(document["segments"]), pack(document["warnings"]), document["id"]),
                 )
             conn.execute(
-                "UPDATE projects SET status='completed', progress=100,stage='Анализ завершён',error=NULL,result=? WHERE id=?",
+                "UPDATE projects SET status='completed', analysis_token=NULL, progress=100,stage='Анализ завершён',error=NULL,result=? WHERE id=?",
                 (pack(result), project_id),
             )
             conn.execute(
@@ -102,6 +128,8 @@ def run_analysis(project_id):
                     pack(result),
                 ),
             )
+    except AnalysisCancelled:
+        raise
     except Exception as exc:
         message = (
             str(exc)
@@ -111,8 +139,8 @@ def run_analysis(project_id):
         logger.warning("Analysis failed: %s", type(exc).__name__)
         with db() as conn:
             conn.execute(
-                "UPDATE projects SET status='failed',error=?,stage='' WHERE id=?",
-                (message, project_id),
+                "UPDATE projects SET status='failed',analysis_token=NULL,error=?,stage='' WHERE id=? AND status='running' AND analysis_token=?",
+                (message, project_id, token),
             )
 
 
@@ -313,6 +341,7 @@ class AnalyzeInput(BaseModel):
 def start_analysis(project_id: str, payload: AnalyzeInput, background_tasks: BackgroundTasks):
     if not ai.configured():
         raise HTTPException(422, "Добавьте OPENAI_API_KEY в backend/.env и перезапустите сервер")
+    token = uid()
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         editable(conn, project_id)
@@ -328,11 +357,31 @@ def start_analysis(project_id: str, payload: AnalyzeInput, background_tasks: Bac
                 422, "Для анализа оставьте ровно один файл в блоке «До» и один в блоке «После»."
             )
         conn.execute(
-            "UPDATE projects SET status='running',progress=1,stage='Подготовка анализа',error=NULL WHERE id=?",
+            "UPDATE projects SET status='running',analysis_token=?,progress=1,stage='Подготовка анализа',error=NULL WHERE id=?",
+            (token, project_id),
+        )
+    background_tasks.add_task(run_analysis, project_id, token)
+    return {"status": "running", "analysis_token": token, "mode": "gpt", "model": ai.model_name()}
+
+
+class CancelInput(BaseModel):
+    analysis_token: str = Field(min_length=1, max_length=64)
+
+
+@app.post("/api/projects/{project_id}/analyze/cancel")
+def cancel_analysis(project_id: str, payload: CancelInput):
+    with db() as conn:
+        conn.execute("BEGIN IMMEDIATE")
+        project = get_project(conn, project_id)
+        if project["status"] != "running":
+            return {"status": project["status"]}
+        if project["analysis_token"] != payload.analysis_token:
+            raise HTTPException(409, "Уже начат другой анализ. Обновите состояние страницы.")
+        conn.execute(
+            "UPDATE projects SET status='cancelled',analysis_token=NULL,progress=0,stage='Анализ отменён',error=NULL WHERE id=?",
             (project_id,),
         )
-    background_tasks.add_task(run_analysis, project_id)
-    return {"status": "running", "mode": "gpt", "model": ai.model_name()}
+    return {"status": "cancelled"}
 
 
 class ReviewInput(BaseModel):

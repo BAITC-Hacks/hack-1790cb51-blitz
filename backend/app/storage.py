@@ -43,7 +43,7 @@ def initialize():
             created_at TEXT NOT NULL, is_demo INTEGER NOT NULL DEFAULT 0,
             revision INTEGER NOT NULL DEFAULT 0, status TEXT NOT NULL DEFAULT 'draft',
             progress INTEGER NOT NULL DEFAULT 0, stage TEXT NOT NULL DEFAULT '',
-            error TEXT, result TEXT
+            error TEXT, result TEXT, analysis_token TEXT
         );
         CREATE TABLE IF NOT EXISTS documents (
             id TEXT PRIMARY KEY, project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -56,8 +56,11 @@ def initialize():
             created_at TEXT NOT NULL, revision INTEGER NOT NULL, result TEXT NOT NULL
         );
         """)
+        columns = {row["name"] for row in conn.execute("PRAGMA table_info(projects)")}
+        if "analysis_token" not in columns:
+            conn.execute("ALTER TABLE projects ADD COLUMN analysis_token TEXT")
         conn.execute(
-            "UPDATE projects SET status='failed', error='Анализ прерван перезапуском сервера. Запустите его снова.' WHERE status='running'"
+            "UPDATE projects SET status='failed', analysis_token=NULL, error='Анализ прерван перезапуском сервера. Запустите его снова.' WHERE status='running'"
         )
 
 

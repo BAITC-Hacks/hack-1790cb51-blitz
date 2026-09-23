@@ -2,23 +2,13 @@ import io
 import zipfile
 
 import pytest
-from fastapi.testclient import TestClient
 from openpyxl import Workbook
 from pypdf import PdfWriter
 
 from app import ai
-from app.main import app
 from app.parser import extract
 from app.storage import db
 from sample_pair import create_pair
-
-
-@pytest.fixture
-def client(tmp_path, monkeypatch):
-    monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.sqlite3"))
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    with TestClient(app) as c:
-        yield c
 
 
 def test_pair_end_to_end_and_sources(client, mock_gpt):
@@ -28,7 +18,7 @@ def test_pair_end_to_end_and_sources(client, mock_gpt):
     project = client.get(f"/api/projects/{project['id']}").json()
     assert project["status"] == "completed"
     result = project["result"]
-    assert result["engine"] == "GPT · gpt-5"
+    assert result["engine"] == "GPT · gpt-5.6-sol"
     assert result["usage"] == {"input_tokens": 30, "output_tokens": 30, "total_tokens": 60}
     assert len(project["documents"]) == 2
     assert result["stats"]["before_functions"] == 17
@@ -51,6 +41,8 @@ def test_pair_end_to_end_and_sources(client, mock_gpt):
         export = client.get(f"/api/projects/{project['id']}/export?format={format}")
         assert export.status_code == 200 and len(export.content) > 100
         assert "Изменения подразделений" not in export.text
+        assert "Метод и ограничения" not in export.text
+        assert "Методология и ограничения" not in export.text
     saved = client.get(f"/api/projects/{project['id']}").json()
     assert saved["result"]["findings"][0]["note"] == "Проверено по источнику"
     assert saved["runs"]
@@ -289,7 +281,7 @@ def test_failed_gpt_run_keeps_previous_result_without_fallback(client, mock_gpt,
     failed = client.get(path).json()
     assert failed["status"] == "failed"
     assert failed["result"]["id"] == previous["id"]
-    assert failed["result"]["engine"] == "GPT · gpt-5"
+    assert failed["result"]["engine"] == "GPT · gpt-5.6-sol"
     assert len(failed["runs"]) == 1
 
 

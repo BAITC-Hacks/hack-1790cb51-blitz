@@ -13,7 +13,8 @@ def test_responses_api_strict_contract(monkeypatch):
     def post(url, **kwargs):
         assert url == "https://api.openai.com/v1/responses"
         body = kwargs["json"]
-        assert body["model"] == "gpt-5"
+        assert body["model"] == "gpt-5.6-sol"
+        assert body["reasoning"] == {"effort": "low"}
         assert body["store"] is False
         assert body["text"]["format"]["strict"] is True
         assert body["text"]["format"]["schema"]["additionalProperties"] is False

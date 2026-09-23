@@ -17,6 +17,7 @@ export const statusLabels = {
   draft: 'Черновик',
   running: 'Анализируем',
   failed: 'Ошибка анализа',
+  cancelled: 'Анализ отменён',
 }
 export const kindLabels = {
   loss: 'Потеря функции',

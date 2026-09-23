@@ -1,4 +1,4 @@
-import { ArrowLeft, ArrowRight, FileText, Play, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowLeft, ArrowRight, FileText, Play, RefreshCw, Sparkles, Square } from 'lucide-react'
 import { useWorkspace } from '../context'
 import { PageTitle, Spinner } from '../components/UI'
 import { canAnalyze } from '../workflow'
@@ -6,16 +6,19 @@ import { canAnalyze } from '../workflow'
 export default function Analysis({
   busy,
   start,
+  cancel,
   refreshHealth,
 }: {
   busy: boolean
   start: () => Promise<void>
+  cancel: () => Promise<void>
   refreshHealth: () => Promise<void>
 }) {
   const { project, health, navigate, openDocument } = useWorkspace()
   const running = project.status === 'running'
   const complete = project.status === 'completed' && !!project.result
   const failed = project.status === 'failed'
+  const cancelled = project.status === 'cancelled'
   const progress = Math.max(0, Math.min(100, project.progress))
   return (
     <div className="analysis-workspace">
@@ -23,16 +26,18 @@ export default function Analysis({
         title={
           running
             ? 'Сравниваем документы'
-            : failed
-              ? 'Анализ не завершён'
-              : complete
-                ? 'Анализ завершён'
-                : 'Всё готово к анализу'
+            : cancelled
+              ? 'Анализ отменён'
+              : failed
+                ? 'Анализ не завершён'
+                : complete
+                  ? 'Анализ завершён'
+                  : 'Всё готово к анализу'
         }
         description={
           running
             ? 'Можно оставить страницу открытой. Результаты появятся автоматически.'
-            : 'GPT-5 сопоставит обязанности по смыслу и найдёт изменения, потери и дублирование.'
+            : 'GPT-5.6 сопоставит обязанности по смыслу и найдёт изменения, потери и дублирование.'
         }
       />
       <section className="analysis-card">
@@ -77,9 +82,32 @@ export default function Analysis({
               <span style={{ width: `${progress}%` }} />
             </div>
             <p>Большие документы обрабатываются по частям. Это может занять несколько минут.</p>
+            <div className="cancel-analysis">
+              <button
+                className="button secondary"
+                disabled={busy || !project.analysis_token}
+                onClick={() => void cancel()}
+              >
+                {busy ? <Spinner /> : <Square size={15} />}
+                {busy ? 'Отменяем…' : 'Отменить анализ'}
+              </button>
+              <small>
+                Остановит текущий запрос и следующие части. Уже использованные API-кредиты не
+                возвращаются.
+              </small>
+            </div>
           </div>
         ) : (
           <>
+            {cancelled && (
+              <div className="setup-notice" role="status">
+                <strong>Обработка остановлена</strong>
+                <p>
+                  Документы сохранены. Можно заменить файлы или запустить анализ заново. Частичный
+                  результат не используется.
+                </p>
+              </div>
+            )}
             {failed && (
               <div className="error-box" role="alert">
                 <strong>Не удалось получить новый результат</strong>
@@ -124,7 +152,7 @@ export default function Analysis({
                   onClick={() => void start()}
                 >
                   {busy ? <Spinner /> : <Play size={16} />}{' '}
-                  {complete || failed ? 'Повторить анализ' : 'Начать анализ'}
+                  {complete || failed || cancelled ? 'Повторить анализ' : 'Начать анализ'}
                 </button>
               </div>
             </div>
