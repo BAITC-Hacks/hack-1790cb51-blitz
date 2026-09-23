@@ -28,7 +28,6 @@ export default function Results({ section }: { section: ResultSection }) {
           <ExportMenu projectId={project.id} />
         </PageTitle>
         <div className="result-summary">
-          <p>{result.summary}</p>
           <dl>
             <div>
               <dt>Функций до → после</dt>
@@ -45,6 +44,7 @@ export default function Results({ section }: { section: ResultSection }) {
               <dd>{result.findings.filter((f) => f.status === 'pending').length}</dd>
             </div>
           </dl>
+          <p>{result.summary}</p>
         </div>
         {!!result.warnings.length && (
           <details className="document-help">

@@ -1,4 +1,4 @@
-/* One task, three stages. No sidebar, account or workspace navigation. */
+/* One task, three stages. No account or workspace navigation. */
 .workflow-app {
   min-height: 100vh;
   display: flex;
@@ -514,5 +514,335 @@
   .workflow-main {
     max-width: none;
     padding: 0;
+  }
+}
+
+/* Reading-first workspace. Presentation only; the workflow remains unchanged. */
+@media screen {
+  .workflow-app {
+    background: #f3f5f4;
+    --line: #dce4df;
+  }
+  .workflow-header {
+    min-height: 76px;
+    padding: 16px max(28px, calc((100vw - 1480px) / 2));
+  }
+  .workflow-tagline {
+    border-left: 1px solid var(--line);
+    padding-left: 24px;
+  }
+  .workflow-main {
+    max-width: 1536px;
+    padding-top: 32px;
+  }
+  .workflow-main > .page-content,
+  .results-workspace {
+    min-width: 0;
+  }
+  .workflow-app .page-heading {
+    margin-bottom: 26px;
+  }
+  .workflow-app .page-heading h1 {
+    font-size: clamp(28px, 2.7vw, 38px);
+    letter-spacing: -1.2px;
+    line-height: 1.18;
+  }
+  .workflow-app .page-heading p {
+    max-width: 72ch;
+    color: #53665d;
+    margin-top: 12px;
+  }
+  .workflow-app .button {
+    min-height: 44px;
+    border-radius: 10px;
+  }
+  .workflow-app .button.primary {
+    background: #175f49;
+    box-shadow: 0 3px 7px #175f4918;
+  }
+  .workflow-app .button.primary:not(:disabled):hover {
+    background: #104c3a;
+  }
+  .workflow-app .icon-button {
+    min-width: 36px;
+    min-height: 36px;
+  }
+  .upload-guide {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 12px;
+    color: #5c7165;
+    font-size: 12px;
+    margin: -4px 0 28px;
+  }
+  .upload-guide span {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .workflow-app .document-slot {
+    border-radius: 16px;
+    border-top: 3px solid #8e9eaa;
+    box-shadow: 0 4px 18px #23362f05;
+  }
+  .workflow-app .slot-after {
+    border-top-color: #24775b;
+  }
+  .slot-version {
+    display: block;
+    margin-bottom: 12px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    color: #5c6c78;
+  }
+  .slot-after .slot-version {
+    color: #24775b;
+  }
+  .slot-heading h2 {
+    font-size: 21px;
+  }
+  .workflow-app .dropzone {
+    min-height: 225px;
+    border-radius: 12px;
+    border-color: #bdccc2;
+    background: #f7faf8;
+  }
+  .workflow-app .dropzone > svg {
+    box-sizing: content-box;
+    padding: 14px;
+    border-radius: 16px;
+    background: #e7f0eb;
+    color: #24775b;
+  }
+  .workflow-app .next-action {
+    padding: 24px;
+    background: #e8f0eb;
+    border: 1px solid #ceded4;
+    border-radius: 14px;
+    gap: 20px;
+  }
+  .next-action h2 {
+    font-size: 18px;
+  }
+  .workflow-app .document-help {
+    color: #53665d;
+    line-height: 1.75;
+  }
+  .analysis-card {
+    border-radius: 18px;
+    padding: 32px;
+    box-shadow: 0 8px 30px #23362f06;
+  }
+  .analysis-pair > div {
+    padding: 18px;
+    background: #f5f7f6;
+    border-radius: 12px;
+  }
+  .analysis-pair > div:last-child {
+    background: #edf5ef;
+  }
+  .analysis-live-heading > strong {
+    font-size: 34px;
+    font-variant-numeric: tabular-nums;
+  }
+  .result-summary {
+    border-radius: 16px;
+    padding: 0;
+    overflow: hidden;
+  }
+  .result-summary dl {
+    margin: 0;
+    padding: 0;
+    gap: 0;
+    border: 0;
+  }
+  .result-summary dl > div {
+    padding: 22px 26px;
+    border-right: 1px solid var(--line);
+  }
+  .result-summary dl > div:last-child {
+    border: 0;
+    background: #fff8e9;
+  }
+  .result-summary dd {
+    font-size: 34px;
+    color: #175f49;
+    font-variant-numeric: tabular-nums;
+  }
+  .result-summary dl > div:last-child dd {
+    color: #865f1a;
+  }
+  .result-summary > p {
+    max-width: none;
+    padding: 20px 26px;
+    border-top: 1px solid var(--line);
+    color: #53665d;
+    font-size: 14px;
+    background: #fcfdfc;
+  }
+  .result-sections {
+    margin: 24px 0;
+    padding: 5px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    background: #e9eeeb;
+    width: fit-content;
+    max-width: 100%;
+  }
+  .result-sections button {
+    border: 0;
+    border-radius: 8px;
+    padding: 11px 18px;
+  }
+  .result-sections button.active {
+    background: white;
+    box-shadow: 0 2px 5px #20352d12;
+  }
+  .comparison-table td {
+    line-height: 1.75;
+    padding-top: 24px;
+    padding-bottom: 24px;
+  }
+  .comparison-table th:nth-child(1),
+  .comparison-table th:nth-child(2) {
+    width: 37%;
+  }
+  .comparison-table td + td {
+    border-left: 1px solid #e8eee9;
+  }
+  .comparison-table tbody tr:nth-child(even) {
+    background: #fafcfb;
+  }
+  .comparison-table .function-text {
+    font-size: 14px;
+    color: #20352d;
+  }
+  .linked-finding {
+    padding: 14px;
+  }
+  .linked-finding strong {
+    font-size: 13px;
+    line-height: 1.6;
+  }
+  .table-toolbar {
+    gap: 16px;
+    flex-wrap: wrap;
+    background: #fafcfb;
+  }
+  .table-toolbar .search-field {
+    flex: 1;
+    min-width: min(260px, 100%);
+  }
+  .workflow-footer {
+    max-width: 1536px;
+  }
+}
+
+@media screen and (min-width: 1200px) {
+  .workflow-main {
+    display: grid;
+    grid-template-columns: 210px minmax(0, 1fr);
+    column-gap: 40px;
+    align-content: start;
+    align-items: start;
+  }
+  .workflow-main > :not(.workflow-steps) {
+    grid-column: 2;
+  }
+  .workflow-steps {
+    position: sticky;
+    top: 28px;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    grid-template-columns: 1fr;
+    width: 100%;
+    margin: 0;
+    gap: 12px;
+  }
+  .workflow-steps > button {
+    padding: 17px 12px;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .workflow-steps > button.active {
+    background: white;
+    border-color: #cadbd0;
+    box-shadow: 0 4px 12px #23362f07;
+  }
+  .workflow-steps strong {
+    font-size: 13px;
+  }
+  .workflow-steps small {
+    font-size: 11px;
+    margin-top: 5px;
+  }
+  .workflow-step-number {
+    width: 28px;
+    height: 28px;
+    font-size: 12px;
+  }
+}
+
+@media screen and (max-width: 720px) {
+  .workflow-header {
+    padding: 14px 16px;
+  }
+  .workflow-main {
+    padding-top: 20px;
+  }
+  .upload-guide {
+    gap: 8px;
+    font-size: 11px;
+    margin-bottom: 20px;
+  }
+  .upload-guide > svg {
+    display: none;
+  }
+  .upload-guide span {
+    padding: 5px 8px;
+    background: #e8eeea;
+    border-radius: 6px;
+  }
+  .workflow-app .document-slot,
+  .analysis-card {
+    padding: 20px;
+  }
+  .workflow-app .dropzone {
+    min-height: 170px;
+  }
+  .result-summary dl > div {
+    padding: 14px 18px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .result-summary dd {
+    font-size: 26px;
+  }
+  .result-summary > p {
+    padding: 18px;
+  }
+  .result-sections {
+    width: 100%;
+  }
+  .result-sections button {
+    justify-content: center;
+    flex: 1;
+    padding: 10px 8px;
+    white-space: normal;
+    font-size: 12px;
+  }
+  .comparison-table td + td {
+    border-left: 0;
+  }
+  .comparison-table td:nth-child(3) {
+    display: grid;
+    justify-items: start;
+    gap: 12px;
+  }
+  .comparison-table .row-findings {
+    width: 100%;
+    margin-top: 0;
   }
 }

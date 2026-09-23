@@ -118,8 +118,17 @@ export default function Documents() {
     <div className="documents-workspace">
       <PageTitle
         title="Сравните два документа"
-        description="Добавьте один файл до реорганизации и один после."
+        description="Узнайте, какие обязанности сохранились, изменились или остались без преемника."
       />
+      <div className="upload-guide">
+        <span>
+          <FileText size={16} /> Две версии документа
+        </span>
+        <ArrowRight size={15} aria-hidden="true" />
+        <span>Сравнение по смыслу</span>
+        <ArrowRight size={15} aria-hidden="true" />
+        <span>Выводы с источниками</span>
+      </div>
       <div className="upload-grid">
         {phases.map((phase) => {
           const documents = project.documents.filter((d) => d.phase === phase)
@@ -127,7 +136,7 @@ export default function Documents() {
           const inputRef = phase === 'before' ? beforeRef : afterRef
           return (
             <section
-              className={`upload-card document-slot ${dragging === phase ? 'dragging' : ''}`}
+              className={`upload-card document-slot slot-${phase} ${dragging === phase ? 'dragging' : ''}`}
               key={phase}
               aria-labelledby={`slot-${phase}`}
               aria-busy={busy}
@@ -142,6 +151,9 @@ export default function Documents() {
             >
               <div className="slot-heading">
                 <div>
+                  <span className="slot-version">
+                    {phase === 'before' ? '01 / ИСХОДНАЯ ВЕРСИЯ' : '02 / НОВАЯ ВЕРСИЯ'}
+                  </span>
                   <h2 id={`slot-${phase}`}>{label} реорганизации</h2>
                   <p>
                     {phase === 'before'
