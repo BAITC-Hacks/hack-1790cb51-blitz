@@ -3,7 +3,6 @@
 import re
 from collections import Counter
 from difflib import SequenceMatcher
-from itertools import combinations
 
 from . import ai
 from .storage import now, uid
@@ -93,7 +92,7 @@ def collect(documents, phase):
     ]
 
 
-def analyze(documents, progress=lambda value, stage: None, use_llm=False):
+def analyze(documents, progress=lambda value, stage: None):
     before, after = collect(documents, "before"), collect(documents, "after")
     if not before or not after:
         raise ValueError(
@@ -102,17 +101,11 @@ def analyze(documents, progress=lambda value, stage: None, use_llm=False):
     if len(before) + len(after) > 600:
         raise ValueError("Прототип поддерживает до 600 функций за один анализ. Разделите проект.")
     progress(30, "Сопоставление функций")
-    ai_result, usage = ai.compare(before, after) if use_llm else (None, {})
-    links = {m.before_id: m.after_ids for m in ai_result.matches} if ai_result else {}
-    reasons = {m.before_id: m.reason for m in ai_result.matches} if ai_result else {}
-    engine = f"GPT · {ai.model_name()}" if ai_result else "Локальный алгоритм"
-    warnings = (
-        []
-        if use_llm
-        else [
-            "Анализ выполнен без GPT: используется лексическое сопоставление. Семантически разные формулировки требуют ручной проверки."
-        ]
-    )
+    ai_result, usage = ai.compare(before, after)
+    links = {m.before_id: m.after_ids for m in ai_result.matches}
+    reasons = {m.before_id: m.reason for m in ai_result.matches}
+    engine = f"GPT · {ai.model_name()}"
+    warnings = list(dict.fromkeys(w for d in documents for w in d.get("warnings", [])))
     rows, findings, used = [], [], set()
 
     def finding(kind, severity, title, description, sources, recommendation, score=None):
@@ -138,9 +131,7 @@ def analyze(documents, progress=lambda value, stage: None, use_llm=False):
             reverse=True,
         )
         matches = [
-            (new, score)
-            for new, score in candidates
-            if (new["id"] in links.get(old["id"], []) if ai_result else score >= 0.62)
+            (new, score) for new, score in candidates if new["id"] in links.get(old["id"], [])
         ]
         best = candidates[0] if candidates else (None, 0)
         status = (
@@ -154,7 +145,7 @@ def analyze(documents, progress=lambda value, stage: None, use_llm=False):
             {
                 "source": new,
                 "score": round(score * 100),
-                "method": "llm" if new["id"] in links.get(old["id"], []) else "lexical",
+                "method": "llm",
             }
             for new, score in matches
         ]
@@ -165,9 +156,7 @@ def analyze(documents, progress=lambda value, stage: None, use_llm=False):
                 "before": old,
                 "after": matched,
                 "status": status,
-                "reason": reasons.get(
-                    old["id"], "Сопоставление по сходству нормализованных формулировок."
-                ),
+                "reason": reasons[old["id"]],
                 "nearest": {"source": best[0], "score": round(best[1] * 100)}
                 if not matches and best[0]
                 else None,
@@ -189,54 +178,23 @@ def analyze(documents, progress=lambda value, stage: None, use_llm=False):
                 {
                     "id": uid(),
                     "before": None,
-                    "after": [{"source": new, "score": 100, "method": "lexical"}],
+                    "after": [{"source": new, "score": 100, "method": "llm"}],
                     "status": "new",
                     "nearest": None,
                 }
             )
 
     progress(65, "Поиск пересечений и конфликтов")
-    for a, b in combinations(after, 2) if not ai_result else []:
-        score = similarity(a["text"], b["text"])
-        if a["department"] != b["department"] and score >= 0.72:
-            finding(
-                "duplication",
-                "medium",
-                "Пересечение зон ответственности",
-                f"Похожие функции закреплены за «{a['department']}» и «{b['department']}». Совместное участие может быть обоснованным — проверьте разделение ролей.",
-                [a, b],
-                "Определите владельца функции и разделите исполнение, согласование и контроль.",
-                round(score * 100),
-            )
-        procurement = r"закуп|договор|поставщик"
-        execution = r"проведен|провод|заключен|выбор поставщик"
-        oversight = r"аудит|независим|проверка.*закуп|контроль.*закуп"
-        if a["department"] == b["department"] and all(
-            re.search(procurement, s["text"], re.I) for s in (a, b)
-        ):
-            if (
-                re.search(execution, a["text"], re.I) and re.search(oversight, b["text"], re.I)
-            ) or (re.search(execution, b["text"], re.I) and re.search(oversight, a["text"], re.I)):
-                finding(
-                    "conflict",
-                    "high",
-                    "Исполнение и контроль в одном подразделении",
-                    f"В «{a['department']}» обнаружены функции исполнения и независимого контроля закупок. Это индикатор для проверки разграничения полномочий.",
-                    [a, b],
-                    "Рассмотрите передачу независимого контроля другому подразделению. Проверьте регламенты и матрицу полномочий.",
-                )
-
-    if ai_result:
-        source_map = {s["id"]: s for s in after}
-        for risk in ai_result.risks:
-            finding(
-                risk.kind,
-                risk.severity,
-                risk.title,
-                risk.description,
-                [source_map[i] for i in dict.fromkeys(risk.source_ids)],
-                risk.recommendation,
-            )
+    source_map = {s["id"]: s for s in after}
+    for risk in ai_result.risks:
+        finding(
+            risk.kind,
+            risk.severity,
+            risk.title,
+            risk.description,
+            [source_map[i] for i in dict.fromkeys(risk.source_ids)],
+            risk.recommendation,
+        )
     progress(85, "Формирование заключения")
 
     def department_names(phase):
@@ -333,8 +291,6 @@ def analyze(documents, progress=lambda value, stage: None, use_llm=False):
         "summary": f"Сопоставлено {len(before)} функций до и {len(after)} после реорганизации. Для {stats['coverage']}% исходных функций найдены кандидаты-преемники. Требуют проверки: {stats['lost']} возможных потерь, {stats['duplications']} пересечений и {stats['conflicts']} потенциальных конфликтов.",
         "methodology": (
             "GPT определяет функции и подразделения по предоставленному тексту, сопоставляет обязанности по смыслу и формирует кандидаты на пересечения и конфликты. Ответ соответствует JSON-схеме; сервер проверяет полноту сопоставления, существование ссылок и названия подразделений. Эти проверки не доказывают правильность смыслового вывода. "
-            if use_llm
-            else "Сопоставление по нормализованным словам, словарю синонимов и сходству формулировок. Порог соответствия 62%, пересечения 72%. "
         )
-        + "Проценты показывают сходство текстов, а не вероятность правильности вывода. Новые подразделения определены по названиям в комплекте «после»; преобразования выведены из переноса функций. Выводы требуют проверки сотрудником.",
+        + "Названия подразделений взяты из каталога исходных заголовков или имени файла, а не сгенерированы моделью. Проценты ближайших фрагментов показывают сходство текстов, а не вероятность правильности вывода. Новые подразделения определены по названиям в комплекте «после»; преобразования выведены из переноса функций. Выводы требуют проверки сотрудником.",
     }

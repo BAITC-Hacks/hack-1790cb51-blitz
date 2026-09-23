@@ -6,7 +6,6 @@ services:
     environment:
       DATABASE_PATH: /app/data/atlas.sqlite3
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
       SEED_DEMO: ${SEED_DEMO:-true}
     volumes:
       - atlas_data:/app/data

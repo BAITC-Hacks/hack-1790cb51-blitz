@@ -75,8 +75,7 @@ export default function App() {
     ),
     [source, setSource] = useState<{ id: string; highlight?: string } | null>(null)
   const [toasts, setToasts] = useState<{ id: number; text: string; error: boolean }[]>([]),
-    [busy, setBusy] = useState(false),
-    [mode, setMode] = useState('auto')
+    [busy, setBusy] = useState(false)
   const [historyResult, setHistoryResult] = useState<Result | null>(null)
   const activeId = useRef(projectId)
   activeId.current = projectId
@@ -174,7 +173,7 @@ export default function App() {
       setProjectId(p.id)
       navigate('overview')
       setModal(null)
-      notify('Демонстрационный проект создан и проанализирован')
+      notify('Демонстрационные документы готовы. Нажмите «Запустить анализ» для GPT-5.')
     } catch (e) {
       notify((e as Error).message, true)
     } finally {
@@ -187,7 +186,7 @@ export default function App() {
     try {
       await api(`/projects/${project.id}/analyze`, {
         method: 'POST',
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode: 'gpt' }),
       })
       setModal(null)
       await reload()
@@ -479,7 +478,7 @@ export default function App() {
             <span>Понятная структура. Обоснованные решения.</span>
             <button onClick={() => navigate('settings')}>
               <span className={`engine-dot ${health?.gpt_configured ? 'gpt' : ''}`} />
-              {health?.gpt_configured ? 'GPT подключён' : 'Локальный режим'}
+              {health?.gpt_configured ? 'GPT-5 · ключ настроен' : 'GPT-5 · нужен API-ключ'}
             </button>
           </footer>
         </main>
@@ -563,25 +562,18 @@ export default function App() {
               «до» и {project.documents.filter((d) => d.phase === 'after').length} «после».
               Результат появится в обзоре, а предыдущий запуск сохранится в истории.
             </p>
-            <label className="form-label">
-              Режим анализа
-              <select value={mode} onChange={(e) => setMode(e.target.value)}>
-                <option value="auto">
-                  {health?.gpt_configured
-                    ? `GPT · ${health.model} (рекомендуется)`
-                    : 'Локальный алгоритм (GPT не подключён)'}
-                </option>
-                <option value="local">Локальный алгоритм · без API</option>
-                <option value="gpt" disabled={!health?.gpt_configured}>
-                  GPT · смысловое сопоставление
-                </option>
-              </select>
-            </label>
+            <p>
+              <strong>GPT-5</strong> · смысловой анализ функций и ответственности
+            </p>
             <div className="info-strip">
-              {mode === 'gpt' || (mode === 'auto' && health?.gpt_configured)
-                ? 'Извлечённый текст будет отправлен в OpenAI. Используются API-кредиты проекта.'
-                : 'Локальный анализ не использует GPT. Он находит сходные формулировки и требует ручной проверки смысловых соответствий.'}
+              Извлечённый текст будет отправлен в OpenAI. Используются API-кредиты проекта.
             </div>
+            {!health?.gpt_configured && (
+              <p className="form-error">
+                Добавьте OPENAI_API_KEY в backend/.env и перезапустите сервер. Анализ выполняется
+                только через GPT-5.
+              </p>
+            )}
             <div className="modal-actions">
               <button className="button secondary" onClick={() => setModal(null)}>
                 Отмена
@@ -591,6 +583,7 @@ export default function App() {
                 onClick={() => void startAnalysis()}
                 disabled={
                   busy ||
+                  !health?.gpt_configured ||
                   !project.documents.some((d) => d.phase === 'before') ||
                   !project.documents.some((d) => d.phase === 'after')
                 }
@@ -652,7 +645,7 @@ export default function App() {
               {
                 n: '2',
                 title: 'Запустите анализ',
-                text: 'GPT сопоставит обязанности по смыслу. Без ключа доступен локальный режим для контрольных примеров.',
+                text: 'GPT-5 сопоставит обязанности по смыслу. Нужны API-ключ OpenAI, доступ к модели и баланс API-проекта.',
               },
               {
                 n: '3',

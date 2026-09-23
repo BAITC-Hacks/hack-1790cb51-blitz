@@ -2,10 +2,13 @@
 
 import json
 import os
+import re
 from typing import Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, ValidationError, create_model
+
+from .parser import DEPARTMENT, NUMBER
 
 
 class StrictModel(BaseModel):
@@ -14,7 +17,6 @@ class StrictModel(BaseModel):
 
 class Classification(StrictModel):
     segment_id: str
-    department: str
     department_source_id: str
     is_function: bool
 
@@ -55,7 +57,7 @@ def configured():
 
 
 def model_name():
-    return os.getenv("OPENAI_MODEL", "gpt-5-mini")
+    return "gpt-5"
 
 
 def request(schema, instruction, payload):
@@ -100,7 +102,7 @@ def request(schema, instruction, payload):
         messages = {
             401: "Проверьте OPENAI_API_KEY на сервере.",
             429: "Достигнут лимит OpenAI. Проверьте баланс и лимиты проекта.",
-            404: "Модель недоступна. Проверьте OPENAI_MODEL.",
+            404: "GPT-5 недоступна этому API-проекту. Проверьте доступ к модели.",
         }
         raise ValueError(
             messages.get(
@@ -112,6 +114,35 @@ def request(schema, instruction, payload):
         raise ValueError(
             "Не удалось получить ответ OpenAI. Проверьте соединение и повторите анализ."
         ) from exc
+    except ValidationError as exc:
+        raise ValueError("GPT-5 вернула ответ неверного формата. Повторите анализ.") from exc
+
+
+def department_catalog(document):
+    """Names come from source headings, never from model-generated free text."""
+    catalog = {}
+    for segment in document["segments"]:
+        text = segment["text"].strip()
+        numbered = NUMBER.match(text)
+        text = numbered.group(2) if numbered else text
+        explicit = bool(re.match(r"^подразделение\s*[:—–-]", text, flags=re.I))
+        text = (
+            re.sub(
+                r"^(?:подразделение|положение о подразделении|положение о)\s*[:—–-]?\s*",
+                "",
+                text,
+                flags=re.I,
+            )
+            .strip()
+            .rstrip(".:")
+        )
+        if (
+            text
+            and len(text) <= 180
+            and (explicit or segment.get("is_department") or DEPARTMENT.match(text))
+        ):
+            catalog[segment["id"]] = text
+    return catalog or {"filename": document["name"]}
 
 
 def extract_functions(document):
@@ -120,33 +151,61 @@ def extract_functions(document):
         raise ValueError("Для GPT-анализа разделите документ на части до 450 абзацев.")
     if sum(len(s["text"]) for s in segments) > 160_000:
         raise ValueError("Для GPT-анализа разделите документ на части до 160 000 символов.")
-    output, usage = request(
-        Extraction,
-        "Отметь фрагменты, описывающие конкретные обязанности/функции, и присвой подразделение. Заголовки и общие описания не функции. Верни запись для каждого segment_id. department — точное название из текста department_source_id; если названия нет, используй имя файла и department_source_id='filename'. Не перефразируй названия. Не меняй исходные тексты.",
-        {
-            "filename": document["name"],
-            "segments": [{"id": s["id"], "text": s["text"]} for s in segments],
-        },
-    )
     known = {s["id"]: s for s in segments}
-    if len({s.segment_id for s in output.segments}) != len(segments) or any(
-        s.segment_id not in known for s in output.segments
-    ):
+    catalog = department_catalog(document)
+    # Enums prevent spelling/abbreviation drift and invented source references.
+    classification = create_model(
+        "SourceClassification",
+        __base__=Classification,
+        segment_id=(Literal[tuple(known)], ...),
+        department_source_id=(Literal[tuple(catalog)], ...),
+    )
+    schema = create_model(
+        "SourceExtraction", __base__=StrictModel, segments=(list[classification], ...)
+    )
+    instruction = (
+        "Отметь фрагменты с конкретными обязанностями/функциями. Заголовки и общие описания не функции. "
+        "Верни ровно одну запись для КАЖДОГО segment_id, без повторов. "
+        "Выбирай department_source_id только из departments: это идентификатор заголовка подразделения, "
+        "ответственного за функцию, а не идентификатор самой функции. "
+        "Если заголовка нет, используй filename. Названия не генерируй: сервер возьмёт их из источника."
+    )
+    payload = {
+        "filename": document["name"],
+        "departments": [{"id": key, "name": name} for key, name in catalog.items()],
+        "segments": [{"id": s["id"], "text": s["text"]} for s in segments],
+    }
+    usage = {"input_tokens": 0, "output_tokens": 0}
+    for attempt in range(2):
+        output, consumed = request(schema, instruction, payload)
+        for key in usage:
+            usage[key] += consumed.get(key, 0)
+        ids = [item.segment_id for item in output.segments]
+        if (
+            len(ids) == len(known)
+            and set(ids) == set(known)
+            and all(item.department_source_id in catalog for item in output.segments)
+        ):
+            break
+        instruction += " Предыдущий ответ содержал пропуски/повторы или неверные ID. Проверь полное покрытие входных ID."
+    else:
         raise ValueError(
-            "GPT вернул неполную разметку документа. Повторите анализ или используйте локальный режим."
+            "GPT-5 не смогла разметить все фрагменты после повторной проверки. Разделите документ на части."
         )
     for item in output.segments:
-        source = (
-            document["name"]
-            if item.department_source_id == "filename"
-            else known.get(item.department_source_id, {}).get("text", "")
-        )
-        if item.department.strip() and item.department.casefold() not in source.casefold():
-            raise ValueError("Название подразделения в ответе GPT не подтверждено источником.")
         segment = known[item.segment_id]
         if not segment.get("manual"):
-            segment["is_function"] = item.is_function
-            segment["department"] = item.department.strip() or document["name"]
+            # A heading always names itself, even if the model attaches it to another unit.
+            is_heading = segment["id"] in catalog
+            department_id = segment["id"] if is_heading else item.department_source_id
+            segment["is_function"] = item.is_function and not is_heading
+            segment["department"] = catalog[department_id]
+            segment["department_source_id"] = department_id
+            segment["is_department"] = is_heading
+    if set(catalog) == {"filename"}:
+        warning = "Заголовок подразделения не найден: GPT-5 использует имя файла. Уточните название в разметке документа."
+        if warning not in document.setdefault("warnings", []):
+            document["warnings"].append(warning)
     return usage
 
 

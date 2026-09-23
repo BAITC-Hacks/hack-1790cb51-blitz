@@ -48,7 +48,7 @@ def invalidate(conn, project_id):
     )
 
 
-def run_analysis(project_id, mode="local"):
+def run_analysis(project_id):
     def progress(value, stage):
         with db() as conn:
             conn.execute(
@@ -68,25 +68,25 @@ def run_analysis(project_id, mode="local"):
             ]
         progress(10, "Чтение и проверка источников")
         usage = {"input_tokens": 0, "output_tokens": 0}
-        if mode == "gpt":
-            for index, document in enumerate(documents):
-                progress(
-                    10 + int(18 * index / len(documents)),
-                    f"GPT: извлечение функций · {index + 1}/{len(documents)}",
-                )
-                consumed = ai.extract_functions(document)
-                for key in usage:
-                    usage[key] += consumed.get(key, 0)
-        result = analyze(documents, progress, use_llm=mode == "gpt")
+        for index, document in enumerate(documents):
+            progress(
+                10 + int(18 * index / len(documents)),
+                f"GPT-5: извлечение функций · {index + 1}/{len(documents)}",
+            )
+            consumed = ai.extract_functions(document)
+            for key in usage:
+                usage[key] += consumed.get(key, 0)
+        result = analyze(documents, progress)
         for key in usage:
-            result["usage"][key] = result["usage"].get(key, 0) + usage[key]
+            usage[key] += result["usage"].get(key, 0)
+        result["usage"] = {**usage, "total_tokens": sum(usage.values())}
         result["revision"] = project["revision"]
         result["document_count"] = len(documents)
         with db() as conn:
             for document in documents:
                 conn.execute(
-                    "UPDATE documents SET segments=? WHERE id=?",
-                    (pack(document["segments"]), document["id"]),
+                    "UPDATE documents SET segments=?,warnings=? WHERE id=?",
+                    (pack(document["segments"]), pack(document["warnings"]), document["id"]),
                 )
             conn.execute(
                 "UPDATE projects SET status='completed', progress=100,stage='Анализ завершён',error=NULL,result=? WHERE id=?",
@@ -120,7 +120,7 @@ def create_demo():
     project_id = uid()
     with db() as conn:
         conn.execute(
-            "INSERT INTO projects (id,name,organization,created_at,is_demo,status) VALUES (?,?,?,?,1,'running')",
+            "INSERT INTO projects (id,name,organization,created_at,is_demo,status) VALUES (?,?,?,?,1,'draft')",
             (
                 project_id,
                 "Реорганизация операционного блока",
@@ -148,7 +148,6 @@ def create_demo():
                         content,
                     ),
                 )
-    run_analysis(project_id)
     return project_id
 
 
@@ -347,19 +346,12 @@ def edit_segment(document_id: str, segment_id: str, payload: SegmentInput):
 
 
 class AnalyzeInput(BaseModel):
-    mode: Literal["local", "gpt", "auto"] = "auto"
+    mode: Literal["gpt"] = "gpt"
 
 
 @app.post("/api/projects/{project_id}/analyze", status_code=202)
 def start_analysis(project_id: str, payload: AnalyzeInput, background_tasks: BackgroundTasks):
-    mode = (
-        "gpt"
-        if payload.mode == "auto" and ai.configured()
-        else "local"
-        if payload.mode == "auto"
-        else payload.mode
-    )
-    if mode == "gpt" and not ai.configured():
+    if not ai.configured():
         raise HTTPException(422, "Добавьте OPENAI_API_KEY в backend/.env и перезапустите сервер")
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
@@ -378,8 +370,8 @@ def start_analysis(project_id: str, payload: AnalyzeInput, background_tasks: Bac
             "UPDATE projects SET status='running',progress=1,stage='Подготовка анализа',error=NULL WHERE id=?",
             (project_id,),
         )
-    background_tasks.add_task(run_analysis, project_id, mode)
-    return {"status": "running", "mode": mode}
+    background_tasks.add_task(run_analysis, project_id)
+    return {"status": "running", "mode": "gpt", "model": ai.model_name()}
 
 
 class ReviewInput(BaseModel):

@@ -20,10 +20,15 @@ def client(tmp_path, monkeypatch):
         yield c
 
 
-def test_demo_end_to_end_and_sources(client):
+def test_demo_end_to_end_and_sources(client, mock_gpt):
     project = client.post("/api/projects/demo").json()
+    assert project["status"] == "draft" and project["result"] is None
+    assert client.post(f"/api/projects/{project['id']}/analyze", json={}).status_code == 202
+    project = client.get(f"/api/projects/{project['id']}").json()
     assert project["status"] == "completed"
     result = project["result"]
+    assert result["engine"] == "GPT · gpt-5"
+    assert result["usage"] == {"input_tokens": 100, "output_tokens": 100, "total_tokens": 200}
     assert result["stats"]["lost"] == 2
     assert result["stats"]["duplications"] == 2
     assert result["stats"]["conflicts"] == 1
@@ -46,10 +51,10 @@ def test_demo_end_to_end_and_sources(client):
     assert saved["runs"]
 
 
-def test_upload_analyze_edit_invalidates(client):
+def test_upload_analyze_edit_invalidates(client, mock_gpt):
     project = client.post("/api/projects", json={"name": "Контрольный проект"}).json()
     path = f"/api/projects/{project['id']}"
-    assert client.post(path + "/analyze", json={"mode": "local"}).status_code == 422
+    assert client.post(path + "/analyze", json={}).status_code == 422
     content = "Подразделение: Отдел закупок\n1. Ведение реестра договоров с поставщиками.".encode()
     documents = []
     for phase in ("before", "after"):
@@ -60,7 +65,9 @@ def test_upload_analyze_edit_invalidates(client):
         )
         assert upload.status_code == 201
         documents.append(upload.json())
-    assert client.post(path + "/analyze", json={"mode": "local"}).status_code == 202
+    for removed_mode in ("local", "auto"):
+        assert client.post(path + "/analyze", json={"mode": removed_mode}).status_code == 422
+    assert client.post(path + "/analyze", json={}).status_code == 202
     result = client.get(path).json()["result"]
     assert result["stats"]["retained"] == 1
     assert result["stats"]["lost"] == 0
@@ -93,6 +100,24 @@ def test_errors_and_gpt_configuration(client):
     )
     assert client.get(path + "/export").status_code == 409
     assert client.get("/api/health").json()["gpt_configured"] is False
+
+
+def test_failed_gpt_run_keeps_previous_result_without_fallback(client, mock_gpt, monkeypatch):
+    project = client.post("/api/projects/demo").json()
+    path = f"/api/projects/{project['id']}"
+    client.post(path + "/analyze", json={})
+    previous = client.get(path).json()["result"]
+
+    def rejected(*args):
+        raise ValueError("OpenAI недоступен")
+
+    monkeypatch.setattr(ai, "request", rejected)
+    assert client.post(path + "/analyze", json={}).status_code == 202
+    failed = client.get(path).json()
+    assert failed["status"] == "failed"
+    assert failed["result"]["id"] == previous["id"]
+    assert failed["result"]["engine"] == "GPT · gpt-5"
+    assert len(failed["runs"]) == 1
 
 
 def test_docx_exact_paragraph_and_table():
@@ -149,19 +174,18 @@ def test_ai_rejects_invented_citations(monkeypatch):
         ai.compare([{"id": "old", "text": "before"}], [{"id": "new", "text": "after"}])
 
 
-def test_ai_rejects_invented_department(monkeypatch):
+def test_ai_rejects_invented_department_id(monkeypatch):
     fake = ai.Extraction(
         segments=[
             ai.Classification(
                 segment_id="1",
-                department="Вымышленный отдел",
-                department_source_id="1",
+                department_source_id="invented",
                 is_function=True,
             )
         ]
     )
     monkeypatch.setattr(ai, "request", lambda *a: (fake, {}))
-    with pytest.raises(ValueError, match="не подтверждено"):
+    with pytest.raises(ValueError, match="после повторной проверки"):
         ai.extract_functions(
             {
                 "name": "test.txt",
