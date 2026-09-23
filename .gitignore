@@ -19,3 +19,9 @@ dist/
 .vscode/
 .DS_Store
 Thumbs.db
+data/
+*.log
+.test-data/
+test-results/
+playwright-report/
+*.tsbuildinfo

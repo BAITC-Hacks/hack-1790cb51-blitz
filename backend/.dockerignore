@@ -2,3 +2,8 @@ __pycache__/
 *.py[cod]
 .venv/
 venv/
+data/
+.env
+.env.*
+tests/
+.pytest_cache/

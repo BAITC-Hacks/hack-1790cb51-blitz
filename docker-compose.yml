@@ -2,33 +2,27 @@ services:
   backend:
     build: ./backend
     ports:
-      - "8000:8000"
+      - "127.0.0.1:8000:8000"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:-change-me}@db:5432/${POSTGRES_DB:-app}
-    depends_on:
-      db:
-        condition: service_healthy
+      DATABASE_PATH: /app/data/atlas.sqlite3
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5-mini}
+      SEED_DEMO: ${SEED_DEMO:-true}
+    volumes:
+      - atlas_data:/app/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   frontend:
     build: ./frontend
     ports:
-      - "5173:80"
+      - "127.0.0.1:5173:80"
     depends_on:
-      - backend
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-app}
-      POSTGRES_USER: ${POSTGRES_USER:-app}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
-      interval: 5s
-      timeout: 5s
-      retries: 5
+      backend:
+        condition: service_healthy
 
 volumes:
-  postgres_data:
+  atlas_data:
