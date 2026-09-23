@@ -1,4 +1,4 @@
-import { useRef, useState, type DragEvent } from 'react'
+import { useEffect, useRef, useState, type DragEvent } from 'react'
 import {
   ArrowRight,
   CheckCircle2,
@@ -11,11 +11,16 @@ import {
 import { api, bytes } from '../api'
 import { useWorkspace } from '../context'
 import type { Document, Phase } from '../types'
-import { Modal, PageTitle, Spinner, Steps } from '../components/UI'
+import { Modal, PageTitle, Spinner } from '../components/UI'
 
 export default function Documents() {
-  const { project, health, reload, notify, openDocument, openAnalysis, navigate } = useWorkspace()
+  const { project, reload, notify, openDocument, openAnalysis, navigate, setDocumentBusy } =
+    useWorkspace()
   const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    setDocumentBusy(busy)
+    return () => setDocumentBusy(false)
+  }, [busy, setDocumentBusy])
   const inFlight = useRef(false)
   const [uploadMessage, setUploadMessage] = useState('')
   const [dragging, setDragging] = useState<Phase | null>(null)
@@ -115,7 +120,6 @@ export default function Documents() {
         title="Сравните два документа"
         description="Добавьте один файл до реорганизации и один после."
       />
-      <Steps current={project.result ? 2 : ready ? 1 : 0} />
       <div className="upload-grid">
         {phases.map((phase) => {
           const documents = project.documents.filter((d) => d.phase === phase)
@@ -274,37 +278,25 @@ export default function Documents() {
             {project.status === 'running'
               ? 'Результаты появятся автоматически.'
               : legacy
-                ? 'Старые файлы сохранены. Удалите лишние или создайте новый проект.'
+                ? 'Старые файлы сохранены. Удалите лишние или начните новое сравнение.'
                 : !ready
                   ? 'После загрузки двух файлов станет доступен анализ.'
-                  : !health?.gpt_configured
-                    ? 'Для запуска подключите GPT в настройках.'
-                    : project.result
-                      ? 'Откройте результаты или запустите анализ повторно.'
-                      : 'Проверьте текст, затем запустите сравнение функций.'}
+                  : project.result
+                    ? 'Откройте результаты или запустите анализ повторно.'
+                    : 'Проверьте текст, затем запустите сравнение функций.'}
           </p>
         </div>
         <div className="next-action-buttons">
           {project.result && (
-            <button className="button secondary" onClick={() => navigate('overview')}>
+            <button className="button secondary" onClick={() => navigate('results')}>
               Результаты
               <ArrowRight size={16} />
             </button>
           )}
-          {ready && !health?.gpt_configured ? (
-            <button className="button primary" onClick={() => navigate('settings')}>
-              Открыть настройки
-            </button>
-          ) : (
-            <button className="button primary" disabled={!ready || disabled} onClick={openAnalysis}>
-              {project.status === 'running' ? <Spinner /> : null}
-              {project.status === 'running'
-                ? 'Анализируем…'
-                : project.result
-                  ? 'Повторить анализ'
-                  : 'Запустить анализ'}
-            </button>
-          )}
+          <button className="button primary" disabled={!ready || disabled} onClick={openAnalysis}>
+            Перейти к анализу
+            <ArrowRight size={16} />
+          </button>
         </div>
       </section>
       <details className="document-help">
@@ -313,10 +305,6 @@ export default function Documents() {
           Положение, инструкция или таблица с функциями. В одном файле могут быть несколько
           подразделений — укажите их названия перед соответствующими обязанностями.
         </p>
-        <a className="text-button" href="/api/examples">
-          <Download size={15} />
-          Скачать пример: два файла «до» и «после»
-        </a>
       </details>
       {replacement && (
         <Modal
@@ -330,8 +318,8 @@ export default function Documents() {
               «{replacement.document.name}» будет заменён на «{replacement.file.name}».
             </p>
             <p>
-              Анализ потребуется запустить заново. Предыдущие результаты останутся в истории. Если
-              новый файл не прочитается, прежний сохранится.
+              Анализ потребуется запустить заново. Сохраните нужный отчёт перед заменой. Если новый
+              файл не прочитается, прежний сохранится.
             </p>
             <div className="modal-actions">
               <button
@@ -364,7 +352,7 @@ export default function Documents() {
           <div className="modal-body">
             <p>
               «{deleting.name}» будет удалён из проекта. Оригинал на компьютере не изменится.
-              Предыдущие результаты анализа останутся в истории.
+              Текущий результат потребуется рассчитать заново.
             </p>
             <div className="modal-actions">
               <button

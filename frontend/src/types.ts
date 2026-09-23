@@ -1,11 +1,11 @@
 export type View =
-  | 'overview'
   | 'documents'
+  | 'analysis'
+  | 'results'
   | 'comparison'
   | 'structure'
   | 'findings'
   | 'report'
-  | 'settings'
 export type Phase = 'before' | 'after'
 export interface Segment {
   id: string

@@ -13,6 +13,7 @@ interface Workspace {
   notify: (text: string, error?: boolean) => void
   search: string
   setSearch: (value: string) => void
+  setDocumentBusy: (value: boolean) => void
 }
 export const WorkspaceContext = createContext<Workspace | null>(null)
 export function useWorkspace() {

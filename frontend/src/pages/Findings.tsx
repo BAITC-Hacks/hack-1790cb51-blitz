@@ -63,6 +63,7 @@ export default function Findings() {
   return (
     <>
       <PageTitle
+        secondary
         title="Риски и замечания"
         description="Проверьте основания каждого вывода и зафиксируйте своё решение."
       >

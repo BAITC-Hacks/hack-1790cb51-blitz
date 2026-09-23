@@ -1,3 +1,11 @@
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public status: number,
+  ) {
+    super(message)
+  }
+}
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
   let response: Response
   try {
@@ -15,10 +23,11 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   }
   if (!response.ok) {
     const error = await response.json().catch(() => null)
-    throw new Error(
+    throw new ApiError(
       typeof error?.detail === 'string'
         ? error.detail
         : `Не удалось выполнить запрос (${response.status}). Повторите попытку.`,
+      response.status,
     )
   }
   return response.status === 204 ? (undefined as T) : response.json()

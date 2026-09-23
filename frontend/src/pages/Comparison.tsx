@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { ArrowRight, Filter, Search, Sparkles } from 'lucide-react'
 import { useWorkspace } from '../context'
-import { Badge, Empty, ExportMenu, PageTitle, SourceButton, statusLabels } from '../components/UI'
+import { Badge, Empty, PageTitle, SourceButton, statusLabels } from '../components/UI'
 import type { Mapping } from '../types'
 
 export default function Comparison() {
@@ -116,11 +116,10 @@ export default function Comparison() {
   return (
     <>
       <PageTitle
+        secondary
         title="Сопоставление функций"
         description="Проследите каждую функцию от исходного подразделения к новому владельцу."
-      >
-        <ExportMenu projectId={project.id} />
-      </PageTitle>
+      />
       <div className="filter-tabs">
         {(['all', 'retained', 'transferred', 'lost', 'new'] as const).map((s) => (
           <button

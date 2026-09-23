@@ -36,6 +36,7 @@ export default function Structure() {
   return (
     <>
       <PageTitle
+        secondary
         title="Структура организации"
         description="Выберите подразделение, чтобы увидеть его связи и переданные функции."
       />

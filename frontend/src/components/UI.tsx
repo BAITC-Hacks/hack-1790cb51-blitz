@@ -1,16 +1,7 @@
 import { useEffect, useRef, type ReactNode } from 'react'
 import { ArrowRight, Check, ChevronRight, Download, FileText, LoaderCircle, X } from 'lucide-react'
-import type { Source, View } from '../types'
+import type { Source } from '../types'
 
-export const labels: Record<View, string> = {
-  overview: 'Обзор',
-  documents: 'Документы',
-  comparison: 'Сравнение функций',
-  structure: 'Подразделения',
-  findings: 'Проверка замечаний',
-  report: 'Заключение',
-  settings: 'Настройки',
-}
 export const statusLabels = {
   retained: 'Сохранена',
   transferred: 'Передана',
@@ -67,15 +58,18 @@ export function PageTitle({
   title,
   description,
   children,
+  secondary = false,
 }: {
   title: string
   description: string
   children?: ReactNode
+  secondary?: boolean
 }) {
+  const Heading = secondary ? 'h2' : 'h1'
   return (
     <div className="page-heading">
       <div>
-        <h1>{title}</h1>
+        <Heading>{title}</Heading>
         <p>{description}</p>
       </div>
       {children && <div className="heading-actions">{children}</div>}

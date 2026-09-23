@@ -1,15 +1,7 @@
 import { CheckCheck, FileCheck2, Printer, ShieldCheck } from 'lucide-react'
 import { useWorkspace } from '../context'
 import { date } from '../api'
-import {
-  Badge,
-  Empty,
-  ExportMenu,
-  PageTitle,
-  SourceButton,
-  kindLabels,
-  statusLabels,
-} from '../components/UI'
+import { Badge, Empty, PageTitle, SourceButton, kindLabels, statusLabels } from '../components/UI'
 
 export default function Report() {
   const { project, openSource, navigate } = useWorkspace(),
@@ -25,6 +17,7 @@ export default function Report() {
   return (
     <>
       <PageTitle
+        secondary
         title="Аналитическое заключение"
         description="Готовый отчёт с источниками, рекомендациями и решениями проверяющего."
       >
@@ -32,7 +25,6 @@ export default function Report() {
           <Printer size={16} />
           Печать / PDF
         </button>
-        <ExportMenu projectId={project.id} />
       </PageTitle>
       <div className="report-layout">
         <article className="report-paper">
