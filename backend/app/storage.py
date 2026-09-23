@@ -1,4 +1,5 @@
 """Small persistent store. Every operation uses its own transactional connection."""
+
 import json
 import os
 import sqlite3
@@ -55,7 +56,9 @@ def initialize():
             created_at TEXT NOT NULL, revision INTEGER NOT NULL, result TEXT NOT NULL
         );
         """)
-        conn.execute("UPDATE projects SET status='failed', error='Анализ прерван перезапуском сервера. Запустите его снова.' WHERE status='running'")
+        conn.execute(
+            "UPDATE projects SET status='failed', error='Анализ прерван перезапуском сервера. Запустите его снова.' WHERE status='running'"
+        )
 
 
 def document_dict(row, detail=False):

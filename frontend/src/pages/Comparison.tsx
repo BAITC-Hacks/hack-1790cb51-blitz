@@ -6,13 +6,226 @@ import type { Mapping } from '../types'
 
 export default function Comparison() {
   const { project, openSource, search, setSearch, navigate } = useWorkspace()
-  const [status, setStatus] = useState('all'), [department, setDepartment] = useState('all')
+  const [status, setStatus] = useState('all'),
+    [department, setDepartment] = useState('all')
   const [page, setPage] = useState(0)
   const rows = project.result?.mapping || []
-  const departments = [...new Set(rows.flatMap(r => [r.before?.department, ...r.after.map(a=>a.source.department)]).filter(Boolean))] as string[]
-  const filtered = useMemo(()=>rows.filter(r => (status==='all'||r.status===status) && (department==='all'||r.before?.department===department||r.after.some(a=>a.source.department===department)) && JSON.stringify(r).toLowerCase().includes(search.toLowerCase())), [rows,status,department,search])
-  const current = Math.min(page, Math.max(0, Math.ceil(filtered.length/12)-1))
-  if (!project.result) return <Empty title="Сопоставление появится после анализа" text="Загрузите оба комплекта и нажмите «Запустить анализ»." action={<button className="button primary" onClick={()=>navigate('documents')}>К документам<ArrowRight size={16}/></button>}/>
-  function rowContent(row: Mapping) { return <tr key={row.id}><td>{row.before ? <><div className="department-label">{row.before.department}</div><p className="function-text">{row.before.text}</p><SourceButton source={row.before} onOpen={openSource} compact /></> : <span className="muted">Нет в исходном комплекте</span>}</td><td>{row.after.length ? row.after.map(a=><div className="matched-function" key={a.source.id}><div className="department-label">{a.source.department}</div><p className="function-text">{a.source.text}</p><div className="match-source"><SourceButton source={a.source} onOpen={openSource} compact />{row.before && <span className="similarity" title="Лексическое сходство текстов, не вероятность правильности">{a.method==='llm'?<><Sparkles size={12}/>GPT</>:`${a.score}% сходство`}</span>}</div></div>) : <div className="missing-function"><span>Преемник не найден</span><small>Проверьте полноту документов «после»</small>{row.nearest && <details><summary>Ближайший фрагмент · {row.nearest.score}%</summary><p>{row.nearest.source.text}</p><SourceButton source={row.nearest.source} onOpen={openSource} compact /></details>}</div>}</td><td><Badge type={row.status}>{statusLabels[row.status]}</Badge>{row.reason && <details className="match-reason"><summary>Почему?</summary><p>{row.reason}</p></details>}</td></tr> }
-  return <><PageTitle title="Сопоставление функций" description="Проследите каждую функцию от исходного подразделения к новому владельцу."><ExportMenu projectId={project.id}/></PageTitle><div className="filter-tabs">{(['all','retained','transferred','lost','new'] as const).map(s=><button className={status===s?'active':''} key={s} onClick={()=>{setStatus(s);setPage(0)}}>{s==='all'?'Все функции':statusLabels[s]}<span>{s==='all'?rows.length:rows.filter(r=>r.status===s).length}</span></button>)}</div><section className="panel"><div className="table-toolbar"><label className="search-field"><Search size={17}/><input placeholder="Найти функцию или подразделение" aria-label="Поиск функций" value={search} onChange={e=>{setSearch(e.target.value);setPage(0)}}/></label><label className="select-field"><Filter size={15}/><select aria-label="Фильтр подразделений" value={department} onChange={e=>{setDepartment(e.target.value);setPage(0)}}><option value="all">Все подразделения</option>{departments.map(d=><option key={d}>{d}</option>)}</select></label></div><div className="table-scroll"><table className="comparison-table"><thead><tr><th><span className="phase-small">01</span>До реорганизации</th><th><span className="phase-small green">02</span>После реорганизации</th><th>Результат</th></tr></thead><tbody>{filtered.slice(current*12,current*12+12).map(rowContent)}</tbody></table></div>{!filtered.length&&<Empty title="Ничего не найдено" text="Измените запрос или сбросьте фильтры." action={<button className="button secondary" onClick={()=>{setSearch('');setDepartment('all');setStatus('all')}}>Сбросить фильтры</button>}/>}<div className="table-footer"><span>{filtered.length ? `${current*12+1}–${Math.min(current*12+12,filtered.length)}`:'0'} из {filtered.length} функций</span><div><button className="button small secondary" disabled={current===0} onClick={()=>setPage(current-1)}>Назад</button><button className="button small secondary" disabled={(current+1)*12>=filtered.length} onClick={()=>setPage(current+1)}>Далее</button></div></div></section><p className="footnote">Сходство текста помогает объяснить локальное сопоставление. GPT учитывает смысл. В обоих режимах проверяйте исходные пункты перед принятием решения.</p></>
+  const departments = [
+    ...new Set(
+      rows
+        .flatMap((r) => [r.before?.department, ...r.after.map((a) => a.source.department)])
+        .filter(Boolean),
+    ),
+  ] as string[]
+  const filtered = useMemo(
+    () =>
+      rows.filter(
+        (r) =>
+          (status === 'all' || r.status === status) &&
+          (department === 'all' ||
+            r.before?.department === department ||
+            r.after.some((a) => a.source.department === department)) &&
+          JSON.stringify(r).toLowerCase().includes(search.toLowerCase()),
+      ),
+    [rows, status, department, search],
+  )
+  const current = Math.min(page, Math.max(0, Math.ceil(filtered.length / 12) - 1))
+  if (!project.result)
+    return (
+      <Empty
+        title="Сопоставление появится после анализа"
+        text="Загрузите оба комплекта и нажмите «Запустить анализ»."
+        action={
+          <button className="button primary" onClick={() => navigate('documents')}>
+            К документам
+            <ArrowRight size={16} />
+          </button>
+        }
+      />
+    )
+  function rowContent(row: Mapping) {
+    return (
+      <tr key={row.id}>
+        <td>
+          {row.before ? (
+            <>
+              <div className="department-label">{row.before.department}</div>
+              <p className="function-text">{row.before.text}</p>
+              <SourceButton source={row.before} onOpen={openSource} compact />
+            </>
+          ) : (
+            <span className="muted">Нет в исходном комплекте</span>
+          )}
+        </td>
+        <td>
+          {row.after.length ? (
+            row.after.map((a) => (
+              <div className="matched-function" key={a.source.id}>
+                <div className="department-label">{a.source.department}</div>
+                <p className="function-text">{a.source.text}</p>
+                <div className="match-source">
+                  <SourceButton source={a.source} onOpen={openSource} compact />
+                  {row.before && (
+                    <span
+                      className="similarity"
+                      title="Лексическое сходство текстов, не вероятность правильности"
+                    >
+                      {a.method === 'llm' ? (
+                        <>
+                          <Sparkles size={12} />
+                          GPT
+                        </>
+                      ) : (
+                        `${a.score}% сходство`
+                      )}
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))
+          ) : (
+            <div className="missing-function">
+              <span>Преемник не найден</span>
+              <small>Проверьте полноту документов «после»</small>
+              {row.nearest && (
+                <details>
+                  <summary>Ближайший фрагмент · {row.nearest.score}%</summary>
+                  <p>{row.nearest.source.text}</p>
+                  <SourceButton source={row.nearest.source} onOpen={openSource} compact />
+                </details>
+              )}
+            </div>
+          )}
+        </td>
+        <td>
+          <Badge type={row.status}>{statusLabels[row.status]}</Badge>
+          {row.reason && (
+            <details className="match-reason">
+              <summary>Почему?</summary>
+              <p>{row.reason}</p>
+            </details>
+          )}
+        </td>
+      </tr>
+    )
+  }
+  return (
+    <>
+      <PageTitle
+        title="Сопоставление функций"
+        description="Проследите каждую функцию от исходного подразделения к новому владельцу."
+      >
+        <ExportMenu projectId={project.id} />
+      </PageTitle>
+      <div className="filter-tabs">
+        {(['all', 'retained', 'transferred', 'lost', 'new'] as const).map((s) => (
+          <button
+            className={status === s ? 'active' : ''}
+            key={s}
+            onClick={() => {
+              setStatus(s)
+              setPage(0)
+            }}
+          >
+            {s === 'all' ? 'Все функции' : statusLabels[s]}
+            <span>{s === 'all' ? rows.length : rows.filter((r) => r.status === s).length}</span>
+          </button>
+        ))}
+      </div>
+      <section className="panel">
+        <div className="table-toolbar">
+          <label className="search-field">
+            <Search size={17} />
+            <input
+              placeholder="Найти функцию или подразделение"
+              aria-label="Поиск функций"
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value)
+                setPage(0)
+              }}
+            />
+          </label>
+          <label className="select-field">
+            <Filter size={15} />
+            <select
+              aria-label="Фильтр подразделений"
+              value={department}
+              onChange={(e) => {
+                setDepartment(e.target.value)
+                setPage(0)
+              }}
+            >
+              <option value="all">Все подразделения</option>
+              {departments.map((d) => (
+                <option key={d}>{d}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="table-scroll">
+          <table className="comparison-table">
+            <thead>
+              <tr>
+                <th>
+                  <span className="phase-small">01</span>До реорганизации
+                </th>
+                <th>
+                  <span className="phase-small green">02</span>После реорганизации
+                </th>
+                <th>Результат</th>
+              </tr>
+            </thead>
+            <tbody>{filtered.slice(current * 12, current * 12 + 12).map(rowContent)}</tbody>
+          </table>
+        </div>
+        {!filtered.length && (
+          <Empty
+            title="Ничего не найдено"
+            text="Измените запрос или сбросьте фильтры."
+            action={
+              <button
+                className="button secondary"
+                onClick={() => {
+                  setSearch('')
+                  setDepartment('all')
+                  setStatus('all')
+                }}
+              >
+                Сбросить фильтры
+              </button>
+            }
+          />
+        )}
+        <div className="table-footer">
+          <span>
+            {filtered.length
+              ? `${current * 12 + 1}–${Math.min(current * 12 + 12, filtered.length)}`
+              : '0'}{' '}
+            из {filtered.length} функций
+          </span>
+          <div>
+            <button
+              className="button small secondary"
+              disabled={current === 0}
+              onClick={() => setPage(current - 1)}
+            >
+              Назад
+            </button>
+            <button
+              className="button small secondary"
+              disabled={(current + 1) * 12 >= filtered.length}
+              onClick={() => setPage(current + 1)}
+            >
+              Далее
+            </button>
+          </div>
+        </div>
+      </section>
+      <p className="footnote">
+        Сходство текста помогает объяснить локальное сопоставление. GPT учитывает смысл. В обоих
+        режимах проверяйте исходные пункты перед принятием решения.
+      </p>
+    </>
+  )
 }

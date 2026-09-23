@@ -33,7 +33,10 @@ def test_demo_end_to_end_and_sources(client):
             doc = client.get(f"/api/documents/{source['document_id']}").json()
             assert source["text"] in [s["text"] for s in doc["segments"]]
     finding = result["findings"][0]
-    response = client.patch(f"/api/projects/{project['id']}/findings/{finding['id']}", json={"status": "confirmed", "note": "Проверено по источнику"})
+    response = client.patch(
+        f"/api/projects/{project['id']}/findings/{finding['id']}",
+        json={"status": "confirmed", "note": "Проверено по источнику"},
+    )
     assert response.status_code == 200
     for format in ("html", "md", "csv"):
         export = client.get(f"/api/projects/{project['id']}/export?format={format}")
@@ -50,7 +53,11 @@ def test_upload_analyze_edit_invalidates(client):
     content = "Подразделение: Отдел закупок\n1. Ведение реестра договоров с поставщиками.".encode()
     documents = []
     for phase in ("before", "after"):
-        upload = client.post(path + "/documents", data={"phase": phase}, files={"file": ("Отдел.txt", content, "text/plain")})
+        upload = client.post(
+            path + "/documents",
+            data={"phase": phase},
+            files={"file": ("Отдел.txt", content, "text/plain")},
+        )
         assert upload.status_code == 201
         documents.append(upload.json())
     assert client.post(path + "/analyze", json={"mode": "local"}).status_code == 202
@@ -59,7 +66,10 @@ def test_upload_analyze_edit_invalidates(client):
     assert result["stats"]["lost"] == 0
     document = client.get(f"/api/documents/{documents[0]['id']}").json()
     segment = document["segments"][-1]
-    edited = client.patch(f"/api/documents/{document['id']}/segments/{segment['id']}", json={"department": "Дирекция закупок", "is_function": True})
+    edited = client.patch(
+        f"/api/documents/{document['id']}/segments/{segment['id']}",
+        json={"department": "Дирекция закупок", "is_function": True},
+    )
     assert edited.status_code == 200
     assert client.get(path).json()["result"] is None
     assert client.get(path).json()["runs"]
@@ -73,7 +83,14 @@ def test_errors_and_gpt_configuration(client):
     project = client.post("/api/projects", json={"name": "Тест"}).json()
     path = f"/api/projects/{project['id']}"
     assert client.post(path + "/analyze", json={"mode": "gpt"}).status_code == 422
-    assert client.post(path + "/documents", data={"phase": "before"}, files={"file": ("bad.exe", b"bad")}).status_code == 422
+    assert (
+        client.post(
+            path + "/documents",
+            data={"phase": "before"},
+            files={"file": ("bad.exe", b"bad")},
+        ).status_code
+        == 422
+    )
     assert client.get(path + "/export").status_code == 409
     assert client.get("/api/health").json()["gpt_configured"] is False
 
@@ -112,18 +129,42 @@ def test_scan_rejected():
 
 def test_negation_is_not_retained():
     from app.analysis import similarity
-    assert similarity("Отдел осуществляет контроль закупок", "Отдел не осуществляет контроль закупок") < .62
+
+    assert (
+        similarity(
+            "Отдел осуществляет контроль закупок",
+            "Отдел не осуществляет контроль закупок",
+        )
+        < 0.62
+    )
 
 
 def test_ai_rejects_invented_citations(monkeypatch):
-    fake = ai.Comparison(matches=[ai.Match(before_id="old", after_ids=["invented"], reason="same")], risks=[])
+    fake = ai.Comparison(
+        matches=[ai.Match(before_id="old", after_ids=["invented"], reason="same")],
+        risks=[],
+    )
     monkeypatch.setattr(ai, "request", lambda *a: (fake, {}))
     with pytest.raises(ValueError, match="неизвестную"):
-        ai.compare([{"id": "old"}], [{"id": "new"}])
+        ai.compare([{"id": "old", "text": "before"}], [{"id": "new", "text": "after"}])
 
 
 def test_ai_rejects_invented_department(monkeypatch):
-    fake = ai.Extraction(segments=[ai.Classification(segment_id="1", department="Вымышленный отдел", department_source_id="1", is_function=True)])
+    fake = ai.Extraction(
+        segments=[
+            ai.Classification(
+                segment_id="1",
+                department="Вымышленный отдел",
+                department_source_id="1",
+                is_function=True,
+            )
+        ]
+    )
     monkeypatch.setattr(ai, "request", lambda *a: (fake, {}))
     with pytest.raises(ValueError, match="не подтверждено"):
-        ai.extract_functions({"name": "test.txt", "segments": [{"id": "1", "text": "Ведение реестра договоров"}]})
+        ai.extract_functions(
+            {
+                "name": "test.txt",
+                "segments": [{"id": "1", "text": "Ведение реестра договоров"}],
+            }
+        )
