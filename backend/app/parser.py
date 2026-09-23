@@ -23,6 +23,36 @@ NUMBER = re.compile(r"^\s*((?:\d+\.)*\d+)[.)]?\s+(.+)")
 NS = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
 
 
+def annotate_sections(segments):
+    """Keep exact source text; attach numbered heading ancestry, not extra functions."""
+    stack = []
+    for index, segment in enumerate(segments):
+        match = NUMBER.match(segment["text"])
+        number = match.group(1) if match else None
+        body = match.group(2) if match else segment["text"]
+        if segment.get("is_department"):
+            stack = []
+        if number:
+            while stack and not number.startswith(stack[-1][0] + "."):
+                stack.pop()
+        following = segments[index + 1] if index + 1 < len(segments) else None
+        next_number = NUMBER.match(following["text"]) if following else None
+        has_children = bool(
+            number and next_number and next_number.group(1).startswith(number + ".")
+        )
+        # A colon introduces a list, even when its children are bullets rather than numbers.
+        # Numbering alone must not discard a complete responsibility with subclauses.
+        is_heading = bool(
+            number
+            and not segment.get("is_department")
+            and (body.endswith(":") or (has_children and not ACTION.search(body)))
+        )
+        segment["is_section_heading"] = is_heading
+        segment["section_path"] = [{"id": s["id"], "text": s["text"]} for _, s in stack]
+        if is_heading:
+            stack.append((number, segment))
+
+
 def safe_zip(data):
     archive = zipfile.ZipFile(io.BytesIO(data))
     if sum(item.file_size for item in archive.infolist()) > 60 * 1024 * 1024:
@@ -147,6 +177,10 @@ def extract(name: str, data: bytes) -> tuple[list[dict], list[str]]:
                 "is_department": is_heading,
             }
         )
+    annotate_sections(segments)
+    for segment in segments:
+        if segment["is_section_heading"]:
+            segment["is_function"] = False
     if not segments:
         raise ValueError(
             "Текст не найден. Для скана сначала выполните OCR и сохраните PDF с текстовым слоем."

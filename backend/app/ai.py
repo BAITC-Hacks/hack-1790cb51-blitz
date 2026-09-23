@@ -3,12 +3,13 @@
 import json
 import os
 import re
+from copy import deepcopy
 from typing import Literal
 
 import httpx
 from pydantic import BaseModel, ConfigDict, ValidationError, create_model
 
-from .parser import DEPARTMENT, NUMBER
+from .parser import DEPARTMENT, NUMBER, annotate_sections
 
 
 class StrictModel(BaseModel):
@@ -196,6 +197,9 @@ def extract_batch(filename, segments, catalog, preceding_department):
     )
     instruction = (
         "Отметь фрагменты с конкретными обязанностями/функциями. Заголовки и общие описания не функции. "
+        "is_section_heading отмечает заголовок списка, не самостоятельную функцию. "
+        "section_path — точные родительские заголовки: используй их как контекст для дочерних пунктов, "
+        "в том числе коротких перечислений без глагола. Не возвращай отдельные записи для контекста. "
         "Верни ровно одну запись для КАЖДОГО segment_id, без повторов. "
         "Выбирай department_source_id только из departments: это идентификатор заголовка подразделения, "
         "ответственного за функцию, а не идентификатор самой функции. "
@@ -207,7 +211,7 @@ def extract_batch(filename, segments, catalog, preceding_department):
         "filename": filename,
         "departments": [{"id": key, "name": name} for key, name in catalog.items()],
         "preceding_department_source_id": preceding_department,
-        "segments": [{"id": s["id"], "text": s["text"]} for s in segments],
+        "segments": segments,
     }
     usage = {"input_tokens": 0, "output_tokens": 0}
     for attempt in range(2):
@@ -229,8 +233,15 @@ def extract_batch(filename, segments, catalog, preceding_department):
 
 
 def extract_functions(document, progress=lambda done, total: None):
-    segments = document["segments"]
-    parts = batches([{"id": s["id"], "text": s["text"]} for s in segments], EXTRACTION_BATCH_SIZE)
+    segments = deepcopy(document["segments"])
+    annotate_sections(segments)  # Also enrich documents uploaded before heading support.
+    parts = batches(
+        [
+            {key: s[key] for key in ("id", "text", "is_section_heading", "section_path")}
+            for s in segments
+        ],
+        EXTRACTION_BATCH_SIZE,
+    )
     known = {s["id"]: s for s in segments}
     catalog = department_catalog(document)
     # Large heading catalogs must not overflow Structured Outputs' enum budget.
@@ -264,10 +275,13 @@ def extract_functions(document, progress=lambda done, total: None):
             # A heading always names itself, even if the model attaches it to another unit.
             is_heading = segment["id"] in catalog
             department_id = segment["id"] if is_heading else item.department_source_id
-            segment["is_function"] = item.is_function and not is_heading
+            segment["is_function"] = (
+                item.is_function and not is_heading and not segment["is_section_heading"]
+            )
             segment["department"] = catalog[department_id]
             segment["department_source_id"] = department_id
             segment["is_department"] = is_heading
+    document["segments"][:] = segments
     if set(catalog) == {"filename"}:
         warning = "Заголовок подразделения не найден: GPT-5 использует имя файла. Уточните название в разметке документа."
         if warning not in document.setdefault("warnings", []):
@@ -279,6 +293,10 @@ def extract_functions(document, progress=lambda done, total: None):
 def compare_batch(before, after, include_risks=True, cross_groups=None):
     instruction = (
         "Сопоставь функции before с after по смыслу, учитывай исполнение, согласование, контроль, отрицания и область ответственности. "
+        "section_path содержит точные заголовки разделов, уточняющие смысл пункта. "
+        "Смена номера, названия или места раздела сама по себе не означает потерю функции. "
+        "При разделении обязанности допускаются несколько after_ids; при объединении — общий преемник. "
+        "Идентификаторы внутри section_path служат только контекстом, не используй их в matches или risks. "
         "Для КАЖДОГО before_id верни список after_ids (пустой, если преемник не найден в ЭТОЙ части) и короткое объяснение reason. "
         "Верни каждую исходную функцию ровно один раз, без повторов ID. Не включай риски утраты: они рассчитываются из matches. "
     )
@@ -317,7 +335,7 @@ def compare_batch(before, after, include_risks=True, cross_groups=None):
 def compare(before, after, progress=lambda value, stage: None):
     # Only send fields useful for semantic analysis, not UI/internal metadata.
     def compact(s):
-        return {key: s[key] for key in ("id", "text", "department") if key in s}
+        return {key: s[key] for key in ("id", "text", "department", "section_path") if key in s}
 
     before_parts = batches([compact(s) for s in before], BEFORE_BATCH_SIZE) or [[]]
     after_parts = batches([compact(s) for s in after], AFTER_BATCH_SIZE) or [[]]

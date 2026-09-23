@@ -70,22 +70,7 @@ def export_report(project, format):
             "p",
             "Результаты носят рекомендательный характер. Отсутствие сопоставления не доказывает утрату функции. Проверка ответственным сотрудником обязательна.",
         ),
-        ("h2", "Изменения подразделений"),
     ]
-    for item in result["departments"]:
-        parts.append(
-            (
-                "p",
-                item["name"] + " → " + (", ".join(item["targets"]) or "Преемник не найден"),
-            )
-        )
-        for source in item.get("sources", []):
-            parts.append(
-                (
-                    "blockquote",
-                    f"{source['document_name']} · {source['locator']}\n{source['text']}",
-                )
-            )
     parts.append(("h2", "Замечания и рекомендации"))
     for index, finding in enumerate(result["findings"], 1):
         parts.extend(

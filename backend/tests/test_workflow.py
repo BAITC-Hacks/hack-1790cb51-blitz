@@ -50,9 +50,34 @@ def test_pair_end_to_end_and_sources(client, mock_gpt):
     for format in ("html", "md", "csv"):
         export = client.get(f"/api/projects/{project['id']}/export?format={format}")
         assert export.status_code == 200 and len(export.content) > 100
+        assert "Изменения подразделений" not in export.text
     saved = client.get(f"/api/projects/{project['id']}").json()
     assert saved["result"]["findings"][0]["note"] == "Проверено по источнику"
     assert saved["runs"]
+
+
+def test_numbered_heading_context_is_saved_in_sources(client, mock_gpt):
+    from test_section_headings import CHILD, DUTY, LINES, PARENT
+
+    project = client.post("/api/projects", json={"name": "Вложенные пункты"}).json()
+    path = f"/api/projects/{project['id']}"
+    for phase in ("before", "after"):
+        response = client.post(
+            path + "/documents",
+            data={"phase": phase},
+            files={"file": (f"{phase}.txt", "\n".join(LINES).encode())},
+        )
+        assert response.status_code == 201
+    assert client.post(path + "/analyze", json={}).status_code == 202
+    result = client.get(path).json()["result"]
+    assert result["stats"]["before_functions"] == 2
+    assert result["stats"]["after_functions"] == 2
+    source = result["mapping"][0]["before"]
+    assert source["text"] == DUTY
+    assert [s["text"] for s in source["section_path"]] == [PARENT, CHILD]
+    saved = client.get(f"/api/documents/{source['document_id']}").json()
+    assert saved["segments"][1]["is_section_heading"] is True
+    assert saved["segments"][1]["is_function"] is False
 
 
 def test_upload_analyze_edit_invalidates(client, mock_gpt):
