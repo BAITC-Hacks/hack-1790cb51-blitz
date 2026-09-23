@@ -9,7 +9,6 @@ COPY requirements.lock.txt .
 RUN pip install --no-cache-dir -r requirements.lock.txt
 
 COPY app ./app
-COPY examples ./examples
 RUN mkdir -p /app/data
 
 EXPOSE 8000

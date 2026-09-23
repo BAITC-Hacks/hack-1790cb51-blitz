@@ -1,8 +1,5 @@
-import io
 import json
 import logging
-import os
-import zipfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Literal
@@ -23,7 +20,6 @@ from .report import export_report
 
 load_dotenv(Path(__file__).resolve().parents[1] / ".env")
 load_dotenv(Path(__file__).resolve().parents[2] / ".env")
-EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 logger = logging.getLogger(__name__)
 
 
@@ -120,54 +116,9 @@ def run_analysis(project_id):
             )
 
 
-def example_document(phase):
-    """One complete document per phase, with the original department headings."""
-    return "\n\n".join(
-        path.read_text(encoding="utf-8-sig").strip()
-        for path in sorted((EXAMPLES / phase).glob("*.txt"))
-    ).encode("utf-8")
-
-
-def create_demo():
-    project_id = uid()
-    with db() as conn:
-        conn.execute(
-            "INSERT INTO projects (id,name,organization,created_at,is_demo,status) VALUES (?,?,?,?,1,'draft')",
-            (
-                project_id,
-                "Реорганизация операционного блока",
-                "АО «Alem Telecom» · демонстрационные данные",
-                now(),
-            ),
-        )
-        for phase in ("before", "after"):
-            content = example_document(phase)
-            filename = f"{'До' if phase == 'before' else 'После'} реорганизации.txt"
-            segments, warnings = extract(filename, content)
-            conn.execute(
-                "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?)",
-                (
-                    uid(),
-                    project_id,
-                    filename,
-                    phase,
-                    len(content),
-                    now(),
-                    pack(segments),
-                    pack(warnings),
-                    content,
-                ),
-            )
-    return project_id
-
-
 @asynccontextmanager
 async def lifespan(app):
     initialize()
-    with db() as conn:
-        empty = conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0
-    if empty and os.getenv("SEED_DEMO", "true").lower() == "true":
-        create_demo()
     yield
 
 
@@ -220,13 +171,6 @@ def add_project(payload: ProjectInput):
             "INSERT INTO projects (id,name,organization,created_at) VALUES (?,?,?,?)",
             (project_id, payload.name.strip(), payload.organization.strip(), now()),
         )
-        return get_project(conn, project_id)
-
-
-@app.post("/api/projects/demo", status_code=201)
-def demo():
-    project_id = create_demo()
-    with db() as conn:
         return get_project(conn, project_id)
 
 
@@ -435,17 +379,4 @@ def export(project_id: str, format: Literal["html", "md", "csv"] = "html"):
         content,
         media_type=media_type,
         headers={"Content-Disposition": f'attachment; filename="atlas-report.{format}"'},
-    )
-
-
-@app.get("/api/examples")
-def examples():
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for phase in ("before", "after"):
-            archive.writestr(f"{phase}.txt", example_document(phase))
-    return Response(
-        buffer.getvalue(),
-        media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="atlas-example-documents.zip"'},
     )

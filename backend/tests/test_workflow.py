@@ -10,19 +10,19 @@ from app import ai
 from app.main import app
 from app.parser import extract
 from app.storage import db
+from sample_pair import create_pair
 
 
 @pytest.fixture
 def client(tmp_path, monkeypatch):
     monkeypatch.setenv("DATABASE_PATH", str(tmp_path / "test.sqlite3"))
-    monkeypatch.setenv("SEED_DEMO", "false")
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     with TestClient(app) as c:
         yield c
 
 
-def test_demo_end_to_end_and_sources(client, mock_gpt):
-    project = client.post("/api/projects/demo").json()
+def test_pair_end_to_end_and_sources(client, mock_gpt):
+    project = create_pair(client)
     assert project["status"] == "draft" and project["result"] is None
     assert client.post(f"/api/projects/{project['id']}/analyze", json={}).status_code == 202
     project = client.get(f"/api/projects/{project['id']}").json()
@@ -132,7 +132,7 @@ def test_large_files_end_to_end_without_old_gpt_limits(client, mock_gpt, monkeyp
 
 
 def test_late_batch_failure_does_not_save_partial_result(client, mock_gpt, monkeypatch):
-    project = client.post("/api/projects/demo").json()
+    project = create_pair(client)
     path = f"/api/projects/{project['id']}"
     client.post(path + "/analyze", json={})
     previous = client.get(path).json()
@@ -175,7 +175,7 @@ def test_errors_and_gpt_configuration(client):
 
 
 def test_single_slot_upload_and_atomic_replacement(client, mock_gpt):
-    project = client.post("/api/projects/demo").json()
+    project = create_pair(client)
     path = f"/api/projects/{project['id']}"
     client.post(path + "/analyze", json={})
     original = client.get(path).json()
@@ -229,7 +229,7 @@ def test_single_slot_upload_and_atomic_replacement(client, mock_gpt):
 
 
 def test_legacy_documents_preserved_and_analysis_requires_pair(client, mock_gpt):
-    project = client.post("/api/projects/demo").json()
+    project = create_pair(client)
     path = f"/api/projects/{project['id']}"
     with db() as conn:
         conn.execute(
@@ -244,16 +244,14 @@ def test_legacy_documents_preserved_and_analysis_requires_pair(client, mock_gpt)
     assert client.post(path + "/analyze", json={}).status_code == 202
 
 
-def test_demo_download_is_a_pair(client):
-    archive = zipfile.ZipFile(io.BytesIO(client.get("/api/examples").content))
-    assert set(archive.namelist()) == {"before.txt", "after.txt"}
-    for phase, count in (("before", 17), ("after", 18)):
-        segments, _ = extract(f"{phase}.txt", archive.read(f"{phase}.txt"))
-        assert sum(s["is_function"] for s in segments) == count
+def test_clean_start_without_examples(client):
+    assert client.get("/api/projects").json() == []
+    assert client.get("/api/examples").status_code == 404
+    assert client.post("/api/projects/demo").status_code == 405
 
 
 def test_failed_gpt_run_keeps_previous_result_without_fallback(client, mock_gpt, monkeypatch):
-    project = client.post("/api/projects/demo").json()
+    project = create_pair(client)
     path = f"/api/projects/{project['id']}"
     client.post(path + "/analyze", json={})
     previous = client.get(path).json()["result"]
