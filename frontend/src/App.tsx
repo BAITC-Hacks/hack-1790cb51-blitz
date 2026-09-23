@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   ArrowRight,
-  ArrowUpRight,
   BookOpen,
-  Building2,
   Check,
   ChevronDown,
   ChevronRight,
@@ -18,7 +16,6 @@ import {
   Network,
   Play,
   Plus,
-  Search,
   Settings2,
   ShieldAlert,
   Sparkles,
@@ -38,8 +35,8 @@ import Report from './pages/Report'
 import Settings from './pages/Settings'
 
 const nav = [
-  { id: 'overview', icon: LayoutDashboard },
   { id: 'documents', icon: FileStack },
+  { id: 'overview', icon: LayoutDashboard },
   { id: 'comparison', icon: GitCompareArrows },
   { id: 'structure', icon: Network },
   { id: 'findings', icon: ShieldAlert },
@@ -56,7 +53,7 @@ const pages = {
 }
 function readView(): View {
   const hash = window.location.hash.slice(1)
-  return hash in labels ? (hash as View) : 'overview'
+  return hash in labels ? (hash as View) : 'documents'
 }
 
 export default function App() {
@@ -206,7 +203,9 @@ export default function App() {
   }
   const Page = pages[view]
   const pending = project?.result?.findings.filter((f) => f.status === 'pending').length || 0
-  const completed = project?.status === 'completed'
+  const pairReady = ['before', 'after'].every(
+    (phase) => project?.documents.filter((d) => d.phase === phase).length === 1,
+  )
   return (
     <div className="app-shell">
       <a
@@ -233,26 +232,17 @@ export default function App() {
           </span>
           <span>
             atlas<span className="brand-period">.</span>
-            <small>ОРГАНИЗАЦИЯ В ДЕТАЛЯХ</small>
+            <small>СРАВНЕНИЕ ФУНКЦИЙ</small>
           </span>
         </button>
-        <button className="workspace-switch" onClick={() => setModal('projects')}>
-          <span className="workspace-icon">
-            <Building2 size={18} />
-          </span>
-          <span>
-            <strong>Рабочее пространство</strong>
-            <small>{project?.organization.split(' · ')[0] || 'HackAlem AI'}</small>
-          </span>
-          <ChevronDown size={14} />
-        </button>
-        <div className="nav-heading">АНАЛИЗ ОРГАНИЗАЦИИ</div>
+        <div className="nav-heading">ПРОЕКТ</div>
         <nav aria-label="Главная навигация">
           {nav.map(({ id, icon: Icon }) => (
             <button
               className={`nav-item ${view === id ? 'active' : ''}`}
               key={id}
               onClick={() => navigate(id)}
+              aria-current={view === id ? 'page' : undefined}
             >
               <Icon size={19} />
               <span>{labels[id]}</span>
@@ -264,17 +254,6 @@ export default function App() {
           ))}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-note">
-            <span className="note-spark">
-              <Sparkles size={18} />
-            </span>
-            <h3>Решения с основанием</h3>
-            <p>Каждый вывод — с опорой на ваши документы.</p>
-            <button onClick={() => setModal('help')}>
-              Как работает ATLAS
-              <ArrowUpRight size={14} />
-            </button>
-          </div>
           <button
             className={`nav-item ${view === 'settings' ? 'active' : ''}`}
             onClick={() => navigate('settings')}
@@ -284,63 +263,22 @@ export default function App() {
           </button>
           <button className="nav-item" onClick={() => setModal('help')}>
             <CircleHelp size={19} />
-            <span>Помощь и методология</span>
+            <span>Как пользоваться</span>
           </button>
-          <div className="sidebar-profile">
-            <span className="avatar">BL</span>
-            <div>
-              <strong>Команда Blitz</strong>
-              <span>HackAlem AI 2026</span>
-            </div>
-            <span className="online-dot" />
-          </div>
         </div>
       </aside>
       <div className="main-shell">
-        <header className="topbar">
-          <div className="breadcrumbs">
-            <button
-              className="icon-button mobile-menu"
-              onClick={() => setMobileOpen(true)}
-              aria-label="Открыть меню"
-            >
-              <Menu size={20} />
-            </button>
-            <span>Рабочее пространство</span>
-            <ChevronRight size={14} />
-            <b>{labels[view]}</b>
-          </div>
-          <div className="topbar-right">
-            <button
-              className="top-search"
-              onClick={() => {
-                navigate('comparison')
-                window.setTimeout(
-                  () =>
-                    document
-                      .querySelector<HTMLInputElement>('input[aria-label="Поиск функций"]')
-                      ?.focus(),
-                  50,
-                )
-              }}
-            >
-              <Search size={17} />
-              <span>Поиск функций</span>
-            </button>
-            <button className="icon-button" onClick={() => setModal('help')} aria-label="Помощь">
-              <CircleHelp size={19} />
-            </button>
-            <span className="topbar-divider" />
-            <span className="avatar small">BL</span>
-          </div>
-        </header>
         <main id="main-content" tabIndex={-1}>
           <div className="project-bar">
-            <div>
-              <span className="project-breadcrumb">
-                <FolderKanban size={14} />
-                ПРОЕКТ
-              </span>
+            <div className="project-selector">
+              <button
+                className="icon-button mobile-menu"
+                onClick={() => setMobileOpen(!mobileOpen)}
+                aria-label={mobileOpen ? 'Закрыть меню' : 'Открыть меню'}
+                aria-expanded={mobileOpen}
+              >
+                <Menu size={20} />
+              </button>
               <button className="project-title" onClick={() => setModal('projects')}>
                 {project?.name || 'Ваши проекты'}
                 <ChevronDown size={15} />
@@ -348,31 +286,29 @@ export default function App() {
               {project?.is_demo && <span className="demo-label">ДЕМО</span>}
             </div>
             <div className="project-actions">
-              <button
-                className="button secondary icon-mobile"
-                onClick={() => {
-                  setModal('history')
-                  setHistoryResult(null)
-                }}
-                disabled={!project?.runs.length}
-              >
-                <History size={16} />
-                <span>История</span>
-              </button>
-              <button
-                className="button primary"
-                disabled={!project || project.status === 'running'}
-                onClick={() => setModal('analyze')}
-              >
-                {project?.status === 'running' ? <Spinner /> : <Sparkles size={16} />}
-                <span>
-                  {project?.status === 'running'
-                    ? 'Анализируем…'
-                    : completed
-                      ? 'Повторить анализ'
-                      : 'Запустить анализ'}
-                </span>
-              </button>
+              {!!project?.runs.length && (
+                <button
+                  className="button secondary icon-mobile"
+                  onClick={() => {
+                    setModal('history')
+                    setHistoryResult(null)
+                  }}
+                  aria-label="История анализа"
+                >
+                  <History size={16} />
+                  <span>История</span>
+                </button>
+              )}
+              {view !== 'documents' && view !== 'overview' && (
+                <button
+                  className="button secondary"
+                  disabled={!project || project.status === 'running'}
+                  onClick={() => navigate('documents')}
+                >
+                  {project?.status === 'running' ? <Spinner /> : <Sparkles size={16} />}
+                  <span>{project?.status === 'running' ? 'Анализируем…' : 'К документам'}</span>
+                </button>
+              )}
             </div>
           </div>
           {project?.status === 'running' && (
@@ -396,6 +332,12 @@ export default function App() {
               <strong>Анализ не завершён</strong>
               <p>{project.error}</p>
               {project.result && <p>Ниже показан предыдущий успешный результат.</p>}
+              {view !== 'documents' && (
+                <button className="text-button" onClick={() => navigate('documents')}>
+                  Проверить документы
+                  <ArrowRight size={15} />
+                </button>
+              )}
             </div>
           )}
           {error ? (
@@ -448,6 +390,7 @@ export default function App() {
                 navigate,
                 openSource,
                 openDocument: (id) => setSource({ id }),
+                openAnalysis: () => setModal('analyze'),
                 openFinding: (id) => {
                   setFindingId(id)
                   navigate('findings')
@@ -475,7 +418,6 @@ export default function App() {
               <span className="online-dot" />
               ATLAS · HackAlem AI
             </span>
-            <span>Понятная структура. Обоснованные решения.</span>
             <button onClick={() => navigate('settings')}>
               <span className={`engine-dot ${health?.gpt_configured ? 'gpt' : ''}`} />
               {health?.gpt_configured ? 'GPT-5 · ключ настроен' : 'GPT-5 · нужен API-ключ'}
@@ -507,7 +449,7 @@ export default function App() {
         <Modal title="Проекты" close={() => setModal(null)}>
           <div className="modal-body">
             <p className="muted">
-              Каждый проект хранит свой комплект документов и историю анализа.
+              Один проект — два документа для сравнения и история результатов.
             </p>
             <div className="project-list">
               {projects.map((p) => (
@@ -553,20 +495,27 @@ export default function App() {
       {modal === 'analyze' && project && (
         <Modal title="Запуск анализа" close={() => setModal(null)}>
           <div className="modal-body">
-            <div className="analysis-dialog-intro">
-              <Sparkles size={25} />
-              <h3>Сравним функции и сохраним основания выводов</h3>
-            </div>
             <p>
-              В проекте {project.documents.filter((d) => d.phase === 'before').length} документов
-              «до» и {project.documents.filter((d) => d.phase === 'after').length} «после».
-              Результат появится в обзоре, а предыдущий запуск сохранится в истории.
+              Сравним обязанности и подразделения в двух документах. Результаты появятся в разделе
+              «Обзор».
             </p>
-            <p>
-              <strong>GPT-5</strong> · смысловой анализ функций и ответственности
-            </p>
+            <dl className="analysis-files">
+              {(['before', 'after'] as const).map((phase) => (
+                <div key={phase}>
+                  <dt>{phase === 'before' ? 'До' : 'После'}</dt>
+                  <dd>
+                    {project.documents
+                      .filter((d) => d.phase === phase)
+                      .map((d) => d.name)
+                      .join(', ') || 'Файл не выбран'}
+                  </dd>
+                </div>
+              ))}
+            </dl>
             <div className="info-strip">
-              Извлечённый текст будет отправлен в OpenAI. Используются API-кредиты проекта.
+              Извлечённый текст будет отправлен в OpenAI. Используются API-кредиты проекта. Большие
+              документы обрабатываются по частям: анализ займёт больше времени и потребует больше
+              кредитов, в том числе на проверку связей между частями.
             </div>
             {!health?.gpt_configured && (
               <p className="form-error">
@@ -582,20 +531,14 @@ export default function App() {
                 className="button primary"
                 onClick={() => void startAnalysis()}
                 disabled={
-                  busy ||
-                  !health?.gpt_configured ||
-                  !project.documents.some((d) => d.phase === 'before') ||
-                  !project.documents.some((d) => d.phase === 'after')
+                  busy || !health?.gpt_configured || !pairReady || project.status === 'running'
                 }
               >
                 {busy ? <Spinner /> : <Play size={16} />}Начать анализ
               </button>
             </div>
-            {(!project.documents.some((d) => d.phase === 'before') ||
-              !project.documents.some((d) => d.phase === 'after')) && (
-              <p className="form-error">
-                Для запуска нужен хотя бы один документ в каждом комплекте.
-              </p>
+            {!pairReady && (
+              <p className="form-error">Для запуска нужен ровно один файл «до» и один «после».</p>
             )}
           </div>
         </Modal>
@@ -635,12 +578,12 @@ export default function App() {
             <span className="help-symbol">
               <BookOpen size={30} />
             </span>
-            <h3>От двух комплектов — к ясному заключению</h3>
+            <h3>От двух документов к заключению</h3>
             {[
               {
                 n: '1',
                 title: 'Добавьте документы',
-                text: 'В разделе «Документы» загрузите положения и инструкции до и после реорганизации. Проверьте распознанные функции.',
+                text: 'Загрузите один файл «до» и один «после». В каждом может быть несколько подразделений. Нажмите «Проверить текст», чтобы увидеть распознанные функции.',
               },
               {
                 n: '2',

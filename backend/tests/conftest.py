@@ -23,21 +23,25 @@ def mock_gpt(monkeypatch):
 
     def respond(schema, instruction, payload):
         if "segments" in payload:
-            department = next(
+            department = payload.get("preceding_department_source_id") or next(
                 (d["id"] for d in payload["departments"] if d["id"] != "filename"), "filename"
             )
-            return schema.model_validate(
-                {
-                    "segments": [
-                        {
-                            "segment_id": s["id"],
-                            "department_source_id": department,
-                            "is_function": bool(re.match(r"\d+\.", s["text"])),
-                        }
-                        for s in payload["segments"]
-                    ]
-                }
-            ), {"input_tokens": 10, "output_tokens": 10}
+            department_ids = {d["id"] for d in payload["departments"]}
+            segments = []
+            for segment in payload["segments"]:
+                if segment["id"] in department_ids:
+                    department = segment["id"]
+                segments.append(
+                    {
+                        "segment_id": segment["id"],
+                        "department_source_id": department,
+                        "is_function": bool(re.match(r"\d+\.", segment["text"])),
+                    }
+                )
+            return schema.model_validate({"segments": segments}), {
+                "input_tokens": 10,
+                "output_tokens": 10,
+            }
 
         def body(s):
             return re.sub(r"^\d+\.\s*", "", s["text"])

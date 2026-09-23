@@ -7,6 +7,7 @@ interface Workspace {
   navigate: (view: View) => void
   openSource: (source: Source) => void
   openDocument: (id: string) => void
+  openAnalysis: () => void
   openFinding: (id: string) => void
   findingId: string | null
   notify: (text: string, error?: boolean) => void

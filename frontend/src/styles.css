@@ -3658,6 +3658,249 @@ th,
     display: inline-grid !important;
   }
 }
+/* A compact workspace: one project header and one document in each slot. */
+.project-selector {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.project-selector .project-title {
+  overflow-wrap: anywhere;
+}
+.project-bar {
+  min-height: 78px;
+  padding: 18px 0;
+  margin-bottom: 28px;
+}
+.nav-item[aria-current='page'] {
+  font-weight: 650;
+}
+.documents-workspace {
+  max-width: 1140px;
+  margin: 0 auto;
+}
+.documents-workspace .steps {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-bottom: 24px;
+  justify-content: flex-start;
+  gap: 24px;
+}
+.documents-workspace .upload-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+}
+.document-slot {
+  min-width: 0;
+  padding: 24px;
+}
+.slot-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.slot-heading h2 {
+  font-size: 19px;
+  font-weight: 600;
+}
+.slot-heading p {
+  margin-top: 4px;
+  color: #657569;
+  font-size: 13px;
+}
+.slot-heading > svg {
+  flex-shrink: 0;
+  color: var(--green);
+  margin-top: 5px;
+}
+.document-slot .dropzone {
+  min-height: 205px;
+  background: #fafcfb;
+}
+.document-slot .dropzone strong {
+  color: var(--green-dark);
+  font-size: 16px;
+}
+.document-slot .dropzone span,
+.document-slot .dropzone small {
+  font-size: 13px;
+  color: #657569;
+}
+.slot-file + .slot-file {
+  border-top: 1px solid var(--line);
+  padding-top: 18px;
+  margin-top: 18px;
+}
+.slot-file-name {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  text-align: left;
+  padding: 0;
+  width: 100%;
+}
+.slot-file-name > svg {
+  color: var(--green);
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+.slot-file-name > span {
+  min-width: 0;
+}
+.slot-file-name strong {
+  font-size: 16px;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+  display: block;
+}
+.slot-file-name small {
+  display: block;
+  font-size: 12px;
+  margin-top: 4px;
+  color: #657569;
+}
+.slot-file-meta {
+  font-size: 13px;
+  color: #657569;
+  margin: 18px 0;
+}
+.slot-actions,
+.next-action-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+.slot-actions .button,
+.slot-actions .text-button,
+.slot-actions .icon-button {
+  font-size: 13px;
+  min-height: 40px;
+}
+.slot-actions .icon-button {
+  min-width: 40px;
+}
+.slot-error,
+.slot-warning {
+  font-size: 13px;
+  padding: 12px;
+  border-radius: 6px;
+  margin: 12px 0;
+  overflow-wrap: anywhere;
+}
+.slot-error {
+  background: #fff1ef;
+  color: #943c32;
+}
+.slot-warning {
+  background: #fff7e8;
+  color: #785523;
+}
+.slot-warnings {
+  font-size: 13px;
+  color: #785523;
+  margin: 14px 0;
+}
+.slot-warnings summary,
+.document-help summary {
+  cursor: pointer;
+}
+.slot-warnings ul {
+  padding-left: 20px;
+  margin: 10px 0;
+}
+.document-formats {
+  color: #657569;
+  font-size: 12px;
+  margin: 14px 0 24px;
+}
+.next-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 22px 24px;
+  background: #fff;
+  margin: 24px 0;
+}
+.next-action h2 {
+  font-size: 16px;
+  font-weight: 600;
+}
+.next-action p {
+  margin-top: 5px;
+  color: #657569;
+  font-size: 13px;
+}
+.next-action .button {
+  min-height: 44px;
+  font-size: 14px;
+  flex-shrink: 0;
+}
+.document-help {
+  color: #657569;
+  font-size: 13px;
+  padding: 0 0 16px;
+}
+.document-help p {
+  max-width: 730px;
+  margin: 12px 0;
+}
+.document-help .text-button {
+  font-size: 13px;
+}
+.analysis-files {
+  margin: 20px 0;
+  display: grid;
+  gap: 12px;
+}
+.analysis-files > div {
+  display: grid;
+  grid-template-columns: 55px minmax(0, 1fr);
+  gap: 12px;
+}
+.analysis-files dt {
+  color: #657569;
+}
+.analysis-files dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+@media (max-width: 1080px) {
+  .next-action {
+    flex-wrap: wrap;
+  }
+}
+@media (max-width: 720px) {
+  .documents-workspace .upload-grid {
+    grid-template-columns: 1fr;
+  }
+  .document-slot,
+  .next-action {
+    padding: 18px;
+  }
+  .slot-heading h2 {
+    font-size: 18px;
+  }
+  .documents-workspace .steps {
+    gap: 12px;
+  }
+  .next-action-buttons,
+  .next-action > .button {
+    width: 100%;
+  }
+  .next-action-buttons .button {
+    flex: 1;
+  }
+  .project-bar {
+    margin-bottom: 24px;
+  }
+}
 @media print {
   :root,
   body {

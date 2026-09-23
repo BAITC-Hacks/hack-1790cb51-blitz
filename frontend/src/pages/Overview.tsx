@@ -1,50 +1,68 @@
 import {
-  ArrowDownRight,
   ArrowRight,
-  ArrowUpRight,
   Building2,
-  Check,
   CircleCheck,
-  FileStack,
   FileText,
   GitCompareArrows,
-  ScanLine,
   ShieldAlert,
-  Sparkles,
 } from 'lucide-react'
 import { useWorkspace } from '../context'
-import { Badge, Empty, SectionHead, Steps, kindLabels } from '../components/UI'
+import { Empty, PageTitle, SectionHead, kindLabels } from '../components/UI'
 import { date } from '../api'
 
 export default function Overview() {
-  const { project, navigate, openDocument, openFinding } = useWorkspace()
+  const { project, health, navigate, openFinding, openAnalysis } = useWorkspace()
   const result = project.result
-  if (!result)
+  if (!result) {
+    const running = project.status === 'running'
+    const failed = project.status === 'failed'
+    const ready = ['before', 'after'].every(
+      (phase) => project.documents.filter((d) => d.phase === phase).length === 1,
+    )
     return (
       <>
-        <Steps current={project.documents.length ? 1 : 0} />
-        <div className="welcome-panel">
-          <span className="eyebrow">РАБОЧЕЕ ПРОСТРАНСТВО</span>
-          <h1>
-            Каждая функция
-            <br />
-            должна найти своё место.
-          </h1>
-          <p>
-            Загрузите документы до и после реорганизации. ATLAS поможет увидеть изменения, проверить
-            риски и сохранить обоснованное заключение.
-          </p>
-          <button className="button primary" onClick={() => navigate('documents')}>
-            Добавить документы
-            <ArrowRight size={17} />
-          </button>
-        </div>
+        <PageTitle
+          title="Обзор"
+          description="Здесь появятся изменения функций и замечания для проверки."
+        />
         <Empty
-          title="Начнём с исходных документов"
-          text="Создайте два комплекта: текущая структура и планируемые изменения. Положения, должностные инструкции и приложения можно загружать вместе."
+          title={
+            running
+              ? 'Готовим результаты'
+              : failed
+                ? 'Результат пока не получен'
+                : ready
+                  ? 'Документы готовы к сравнению'
+                  : 'Начните с двух документов'
+          }
+          text={
+            running
+              ? 'Можно оставить эту страницу открытой. Данные обновятся автоматически.'
+              : failed
+                ? 'Причина остановки указана выше. Проверьте документы перед повторным запуском.'
+                : ready
+                  ? 'Запустите анализ, чтобы увидеть переходы функций и возможные риски.'
+                  : 'Добавьте файл до реорганизации и файл после, затем запустите анализ.'
+          }
+          action={
+            !running && (
+              <button
+                className="button primary"
+                onClick={() =>
+                  ready && !failed && health?.gpt_configured
+                    ? openAnalysis()
+                    : navigate('documents')
+                }
+              >
+                {ready && !failed && health?.gpt_configured ? 'Запустить анализ' : 'К документам'}
+                <ArrowRight size={16} />
+              </button>
+            )
+          }
         />
       </>
     )
+  }
   const { stats } = result
   const severityOrder = { high: 0, medium: 1, low: 2 }
   const pending = result.findings
@@ -52,122 +70,51 @@ export default function Overview() {
     .sort((a, b) => severityOrder[a.severity] - severityOrder[b.severity])
   const metrics = [
     {
-      label: 'Документов в анализе',
-      value: project.documents.length,
-      note: `${project.documents.filter((d) => d.phase === 'before').length} до · ${project.documents.filter((d) => d.phase === 'after').length} после`,
-      icon: FileStack,
-      color: 'blue',
-      view: 'documents' as const,
-    },
-    {
-      label: 'Подразделения',
-      value: (
-        <>
-          {stats.before_departments}
-          <ArrowRight size={22} />
-          {stats.after_departments}
-        </>
-      ),
-      note: 'До и после реорганизации',
-      icon: Building2,
-      color: 'purple',
-      view: 'structure' as const,
-    },
-    {
-      label: 'Преемственность функций',
-      value: (
-        <>
-          {stats.coverage}
-          <small>%</small>
-        </>
-      ),
-      note: `${stats.before_functions - stats.lost} из ${stats.before_functions} функций сопоставлено`,
-      icon: GitCompareArrows,
-      color: 'green',
+      label: 'Функций до → после',
+      value: `${stats.before_functions} → ${stats.after_functions}`,
+      note: 'Все распознанные обязанности',
+      icon: FileText,
       view: 'comparison' as const,
     },
     {
-      label: 'Требуют проверки',
+      label: 'Найден преемник',
+      value: `${stats.coverage}%`,
+      note: `${stats.before_functions - stats.lost} из ${stats.before_functions} исходных функций`,
+      icon: GitCompareArrows,
+      view: 'comparison' as const,
+    },
+    {
+      label: 'Осталось проверить',
       value: pending.length,
       note: `${pending.filter((f) => f.severity === 'high').length} с высоким приоритетом`,
       icon: ShieldAlert,
-      color: 'orange',
       view: 'findings' as const,
+    },
+    {
+      label: 'Подразделений до → после',
+      value: `${stats.before_departments} → ${stats.after_departments}`,
+      note: 'Связи по переданным функциям',
+      icon: Building2,
+      view: 'structure' as const,
     },
   ]
   return (
     <>
-      <div className="overview-intro">
-        <div>
-          <div className="eyebrow">ПОЛНАЯ КАРТИНА ИЗМЕНЕНИЙ</div>
-          <h1>Обзор анализа</h1>
-          <p>От документов к понятным решениям.</p>
-        </div>
-        <span className="updated">
-          <CircleCheck size={15} />
-          Обновлено {date(result.created_at)}
-        </span>
-      </div>
-      <div className="insight-banner">
-        <div className="insight-copy">
-          <span className="insight-label">
-            <Sparkles size={14} />
-            РЕЗУЛЬТАТ АНАЛИЗА
-          </span>
-          <h2>
-            Изменения под контролем.
-            <br />
-            <span>Важные детали — на виду.</span>
-          </h2>
-          <p>
-            {stats.lost
-              ? `У ${stats.lost} функций не найден преемник. Проверьте их, чтобы не потерять ответственность при реорганизации.`
-              : 'Для всех исходных функций найдены кандидаты-преемники. Проверьте сопоставление и подтвердите выводы.'}
-          </p>
-          <button onClick={() => navigate('findings')}>
-            Перейти к замечаниям
-            <ArrowRight size={16} />
-          </button>
-        </div>
-        <div className="banner-visual" aria-hidden="true">
-          <div className="visual-caption">ПРЕЕМСТВЕННОСТЬ ФУНКЦИЙ</div>
-          <div className="visual-node top">
-            <Building2 size={17} />
-            <span>Исходная структура</span>
-            <span className="node-count">{stats.before_departments}</span>
-          </div>
-          <div className="connector" />
-          <div className="visual-branches">
-            <div className="visual-node">
-              <Check size={15} />
-              {stats.retained} сохранено
-            </div>
-            <div className="visual-node">
-              <ArrowUpRight size={15} />
-              {stats.transferred} передано
-            </div>
-          </div>
-          <div className="visual-note">
-            <span />
-            Каждый вывод связан с источником
-          </div>
-        </div>
-      </div>
+      <PageTitle
+        title="Обзор результатов"
+        description={`Анализ от ${date(result.created_at)} · ${result.engine}`}
+      />
       <div className="metrics-grid">
-        {metrics.map(({ icon: Icon, ...m }) => (
-          <button
-            className={`metric-card ${m.color}`}
-            key={m.label}
-            onClick={() => navigate(m.view)}
-          >
+        {metrics.map(({ icon: Icon, ...metric }) => (
+          <button className="metric-card" key={metric.label} onClick={() => navigate(metric.view)}>
             <div className="metric-top">
-              <span>{m.label}</span>
+              <span>{metric.label}</span>
               <Icon size={18} />
             </div>
-            <strong>{m.value}</strong>
+            <strong>{metric.value}</strong>
             <div className="metric-bottom">
-              <span>{m.note}</span>
-              <ArrowUpRight size={15} />
+              <span>{metric.note}</span>
+              <ArrowRight size={15} />
             </div>
           </button>
         ))}
@@ -175,31 +122,14 @@ export default function Overview() {
       <div className="overview-columns">
         <section className="panel function-panel">
           <SectionHead
-            title="Что произошло с функциями"
-            subtitle="Распределение по результатам сопоставления"
-            action="Все функции"
+            title="Изменения функций"
+            action="Открыть сравнение"
             onAction={() => navigate('comparison')}
           />
-          <div className="function-summary">
-            <strong>
-              {stats.before_functions}
-              <span>исходных функций</span>
-            </strong>
-            <div
-              className="mini-donut"
-              style={{
-                background: `conic-gradient(var(--green) 0 ${stats.coverage}%, #efb38e ${stats.coverage}% 100%)`,
-              }}
-            >
-              <span>
-                {stats.coverage}%<small>сопоставлено</small>
-              </span>
-            </div>
-          </div>
           <div className="distribution">
             {[
-              { label: 'Сохранены в подразделении', n: stats.retained, c: 'retained' },
-              { label: 'Переданы другим подразделениям', n: stats.transferred, c: 'transferred' },
+              { label: 'Остались в подразделении', n: stats.retained, c: 'retained' },
+              { label: 'Переданы другому', n: stats.transferred, c: 'transferred' },
               { label: 'Преемник не найден', n: stats.lost, c: 'lost' },
             ].map((item) => (
               <div className="distribution-row" key={item.c}>
@@ -209,83 +139,67 @@ export default function Overview() {
                 <div className="bar-track">
                   <div
                     className={item.c}
-                    style={{ width: `${(item.n / stats.before_functions) * 100}%` }}
+                    style={{
+                      width: `${stats.before_functions ? (item.n / stats.before_functions) * 100 : 0}%`,
+                    }}
                   />
                 </div>
               </div>
             ))}
           </div>
-          <div className="panel-foot">
-            <span className="plus-mark">+</span>
-            {stats.new} новых функций в структуре «после»
-          </div>
+          <div className="panel-foot">Новых функций после реорганизации: {stats.new}</div>
         </section>
         <section className="panel priorities">
           <SectionHead
-            title="В фокусе внимания"
-            subtitle="Начните с наиболее важных изменений"
+            title="Требуют вашего решения"
             action="Все замечания"
             onAction={() => navigate('findings')}
           />
           {pending.length ? (
-            pending.slice(0, 3).map((f, i) => (
-              <button className="priority-item" key={f.id} onClick={() => openFinding(f.id)}>
-                <span className={`priority-index ${f.severity}`}>
-                  {String(i + 1).padStart(2, '0')}
-                </span>
+            pending.slice(0, 3).map((finding, i) => (
+              <button
+                className="priority-item"
+                key={finding.id}
+                onClick={() => openFinding(finding.id)}
+              >
+                <span className={`priority-index ${finding.severity}`}>{i + 1}</span>
                 <span>
-                  <span className="priority-label">{kindLabels[f.kind]}</span>
+                  <span className="priority-label">{kindLabels[finding.kind]}</span>
                   <strong>
-                    {f.kind === 'loss' ? f.sources[0].text.replace(/^\d+[.)]\s*/, '') : f.title}
+                    {finding.kind === 'loss'
+                      ? finding.sources[0].text.replace(/^\d+[.)]\s*/, '')
+                      : finding.title}
                   </strong>
-                  <small>{f.sources[0].department}</small>
+                  <small>{finding.sources[0].department}</small>
                 </span>
-                <ArrowUpRight size={17} />
+                <ArrowRight size={17} />
               </button>
             ))
           ) : (
             <div className="all-reviewed">
-              <CircleCheck size={32} />
+              <CircleCheck size={28} />
               <h3>
-                {result.findings.length ? 'Все замечания проверены' : 'Отклонения не обнаружены'}
+                {result.findings.length ? 'Все замечания проверены' : 'Замечаний не обнаружено'}
               </h3>
-              <p>
-                {result.findings.length
-                  ? 'Можно перейти к итоговому заключению.'
-                  : 'Проверьте сопоставление и полноту комплекта.'}
-              </p>
+              <p>Проверьте сопоставление функций перед подготовкой заключения.</p>
             </div>
           )}
-          <div className="review-note">
-            <ScanLine size={16} />
-            Выводы рекомендательные. Финальное решение — за вами.
-          </div>
         </section>
       </div>
-      <section className="panel">
-        <SectionHead
-          title="Документы проекта"
-          subtitle="Источники, на которых основано заключение"
-          action="Открыть библиотеку"
-          onAction={() => navigate('documents')}
-        />
-        <div className="recent-documents">
-          {project.documents.slice(0, 3).map((d) => (
-            <button key={d.id} className="recent-document" onClick={() => openDocument(d.id)}>
-              <span className="file-icon">
-                <FileText size={20} />
-              </span>
-              <span>
-                <strong>{d.name}</strong>
-                <small>
-                  {d.function_count} функций · {d.departments.length} подразделение
-                </small>
-              </span>
-              <Badge type={d.phase}>{d.phase === 'before' ? 'До' : 'После'}</Badge>
-              <ArrowDownRight size={16} />
-            </button>
-          ))}
+      <section className="next-action">
+        <div>
+          <h2>
+            {pending.length ? 'Следующий шаг — проверить замечания' : 'Можно перейти к заключению'}
+          </h2>
+          <p>Сверьте выводы с источниками и сохраните своё решение.</p>
         </div>
+        <button
+          className="button primary"
+          onClick={() => navigate(pending.length ? 'findings' : 'report')}
+        >
+          {pending.length ? 'Проверить замечания' : 'Открыть заключение'}
+          <ArrowRight size={16} />
+        </button>
       </section>
     </>
   )

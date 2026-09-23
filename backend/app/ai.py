@@ -51,6 +51,43 @@ SYSTEM = """Ты аналитик организационной структу�
 Выводы рекомендательные. Различай совместное участие в процессе и реальное дублирование полномочий.
 Простое отсутствие совпадения не доказывает утрату функции. Никогда не утверждай нарушение закона."""
 
+# Per-request budgets, not document/project limits. UTF-8 bytes are a conservative
+# proxy for tokens; leave ample room for instructions, schemas and the response.
+EXTRACTION_BATCH_SIZE = 120
+BEFORE_BATCH_SIZE = 120
+AFTER_BATCH_SIZE = 240
+BATCH_BYTES = 96_000
+SINGLE_ITEM_BYTES = 140_000
+
+
+def json_bytes(value):
+    return len(json.dumps(value, ensure_ascii=False).encode("utf-8"))
+
+
+def batches(items, max_items):
+    """Keep every source intact and in order; never truncate an oversized input."""
+    result, batch, size = [], [], 0
+    for item in items:
+        item_size = json_bytes(item)
+        if item_size > SINGLE_ITEM_BYTES:
+            raise ValueError(
+                f"Фрагмент {item['id']} слишком длинный для одного запроса GPT. "
+                "Разбейте этот отдельный абзац/строку на несколько, сохранив весь текст."
+            )
+        if batch and (len(batch) >= max_items or size + item_size > BATCH_BYTES):
+            result.append(batch)
+            batch, size = [], 0
+        batch.append(item)
+        size += item_size
+    if batch:
+        result.append(batch)
+    return result
+
+
+def add_usage(total, consumed):
+    for key in total:
+        total[key] += consumed.get(key, 0)
+
 
 def configured():
     return bool(os.getenv("OPENAI_API_KEY", "").strip())
@@ -90,7 +127,7 @@ def request(schema, instruction, payload):
         response.raise_for_status()
         result = response.json()
         if result.get("status") != "completed":
-            raise ValueError("Модель не завершила ответ. Попробуйте сократить комплект документов.")
+            raise ValueError("Модель не завершила ответ на текущую часть. Повторите анализ.")
         text = "".join(
             c.get("text", "")
             for o in result.get("output", [])
@@ -145,14 +182,8 @@ def department_catalog(document):
     return catalog or {"filename": document["name"]}
 
 
-def extract_functions(document):
-    segments = document["segments"]
-    if len(segments) > 450:
-        raise ValueError("Для GPT-анализа разделите документ на части до 450 абзацев.")
-    if sum(len(s["text"]) for s in segments) > 160_000:
-        raise ValueError("Для GPT-анализа разделите документ на части до 160 000 символов.")
+def extract_batch(filename, segments, catalog, preceding_department):
     known = {s["id"]: s for s in segments}
-    catalog = department_catalog(document)
     # Enums prevent spelling/abbreviation drift and invented source references.
     classification = create_model(
         "SourceClassification",
@@ -168,18 +199,20 @@ def extract_functions(document):
         "Верни ровно одну запись для КАЖДОГО segment_id, без повторов. "
         "Выбирай department_source_id только из departments: это идентификатор заголовка подразделения, "
         "ответственного за функцию, а не идентификатор самой функции. "
-        "Если заголовка нет, используй filename. Названия не генерируй: сервер возьмёт их из источника."
+        "Это последовательная часть документа. preceding_department_source_id — последний заголовок "
+        "перед этой частью: его действие продолжается до следующего заголовка, если текст не указывает иное. "
+        "Если заголовков в документе нет, используй filename. Названия не генерируй: сервер возьмёт их из источника."
     )
     payload = {
-        "filename": document["name"],
+        "filename": filename,
         "departments": [{"id": key, "name": name} for key, name in catalog.items()],
+        "preceding_department_source_id": preceding_department,
         "segments": [{"id": s["id"], "text": s["text"]} for s in segments],
     }
     usage = {"input_tokens": 0, "output_tokens": 0}
     for attempt in range(2):
         output, consumed = request(schema, instruction, payload)
-        for key in usage:
-            usage[key] += consumed.get(key, 0)
+        add_usage(usage, consumed)
         ids = [item.segment_id for item in output.segments]
         if (
             len(ids) == len(known)
@@ -190,9 +223,42 @@ def extract_functions(document):
         instruction += " Предыдущий ответ содержал пропуски/повторы или неверные ID. Проверь полное покрытие входных ID."
     else:
         raise ValueError(
-            "GPT-5 не смогла разметить все фрагменты после повторной проверки. Разделите документ на части."
+            "GPT-5 не смогла разметить все фрагменты текущей части после повторной проверки. Повторите анализ."
         )
-    for item in output.segments:
+    return output.segments, usage
+
+
+def extract_functions(document, progress=lambda done, total: None):
+    segments = document["segments"]
+    parts = batches([{"id": s["id"], "text": s["text"]} for s in segments], EXTRACTION_BATCH_SIZE)
+    known = {s["id"]: s for s in segments}
+    catalog = department_catalog(document)
+    # Large heading catalogs must not overflow Structured Outputs' enum budget.
+    full_catalog = len(catalog) <= 200 and json_bytes(catalog) <= 24_000
+    preceding = "filename" if "filename" in catalog else None
+    usage = {"input_tokens": 0, "output_tokens": 0}
+    classifications = []
+    for index, part in enumerate(parts):
+        context_ids = ([preceding] if preceding else []) + [
+            s["id"] for s in part if s["id"] in catalog
+        ]
+        part_catalog = catalog if full_catalog else {key: catalog[key] for key in context_ids}
+        if not part_catalog:
+            # A preamble before the first heading still needs a source-owned unit.
+            first = next(iter(catalog))
+            part_catalog = {first: catalog[first]}
+        progress(index, len(parts))
+        try:
+            output, consumed = extract_batch(document["name"], part, part_catalog, preceding)
+        except ValueError as exc:
+            raise ValueError(f"Извлечение функций, часть {index + 1}/{len(parts)}: {exc}") from exc
+        classifications.extend(output)
+        add_usage(usage, consumed)
+        for segment in part:
+            if segment["id"] in catalog:
+                preceding = segment["id"]
+    # Apply only after every part is complete and validated.
+    for item in classifications:
         segment = known[item.segment_id]
         if not segment.get("manual"):
             # A heading always names itself, even if the model attaches it to another unit.
@@ -206,18 +272,34 @@ def extract_functions(document):
         warning = "Заголовок подразделения не найден: GPT-5 использует имя файла. Уточните название в разметке документа."
         if warning not in document.setdefault("warnings", []):
             document["warnings"].append(warning)
+    progress(len(parts), len(parts))
     return usage
 
 
-def compare(before, after):
-    if sum(len(s["text"]) for s in before + after) > 240_000:
-        raise ValueError(
-            "Для GPT-сопоставления разделите проект: общий объём функций превышает 240 000 символов."
+def compare_batch(before, after, include_risks=True, cross_groups=None):
+    instruction = (
+        "Сопоставь функции before с after по смыслу, учитывай исполнение, согласование, контроль, отрицания и область ответственности. "
+        "Для КАЖДОГО before_id верни список after_ids (пустой, если преемник не найден в ЭТОЙ части) и короткое объяснение reason. "
+        "Верни каждую исходную функцию ровно один раз, без повторов ID. Не включай риски утраты: они рассчитываются из matches. "
+    )
+    if include_risks:
+        instruction += (
+            "Найди только обоснованные потенциальные дублирования между подразделениями и конфликты интересов в after. "
+            "Для каждого риска нужны минимум два разных source_ids из after. Не считай похожую тему достаточным основанием. "
+        )
+    else:
+        instruction += "Верни risks пустым: риски проверяются отдельными запросами. "
+    payload = {"before": before, "after": after}
+    if cross_groups:
+        payload["cross_groups"] = cross_groups
+        instruction += (
+            "Это проверка связей между двумя частями after: верни только риски с источниками из ОБЕИХ cross_groups. "
+            "before пуст, поэтому matches должен быть пустым."
         )
     output, usage = request(
         Comparison,
-        "Сопоставь функции before с after по смыслу, учитывай исполнение, согласование, контроль, отрицания и область ответственности. Для КАЖДОГО before_id верни список after_ids (пустой, если преемник не найден) и короткое объяснение reason. Затем найди только обоснованные потенциальные дублирования между подразделениями и конфликты интересов в after. Для каждого риска нужны минимум два разных source_ids из after. Не считай похожую тему достаточным основанием. Не включай риски утраты: они рассчитываются из matches.",
-        {"before": before, "after": after},
+        instruction,
+        payload,
     )
     known_before, known_after = {s["id"] for s in before}, {s["id"] for s in after}
     if {m.before_id for m in output.matches} != known_before or len(output.matches) != len(
@@ -230,3 +312,77 @@ def compare(before, after):
         if len(set(risk.source_ids)) < 2 or any(i not in known_after for i in risk.source_ids):
             raise ValueError("Риск в ответе GPT не имеет корректных подтверждающих источников.")
     return output, usage
+
+
+def compare(before, after, progress=lambda value, stage: None):
+    # Only send fields useful for semantic analysis, not UI/internal metadata.
+    def compact(s):
+        return {key: s[key] for key in ("id", "text", "department") if key in s}
+
+    before_parts = batches([compact(s) for s in before], BEFORE_BATCH_SIZE) or [[]]
+    after_parts = batches([compact(s) for s in after], AFTER_BATCH_SIZE) or [[]]
+    total = len(before_parts) * len(after_parts) + len(after_parts) * (len(after_parts) - 1) // 2
+    usage = {"input_tokens": 0, "output_tokens": 0}
+    links = {s["id"]: [] for s in before}
+    reasons = {s["id"]: [] for s in before}
+    unmatched_reasons = {}
+    risks = {}
+    done = 0
+
+    def run(left, right, include_risks=True, cross_groups=None):
+        nonlocal done
+        stage = "проверка рисков между частями" if cross_groups else "сопоставление функций"
+        progress(30 + int(50 * done / total), f"GPT-5: {stage} · запрос {done + 1}/{total}")
+        try:
+            output, consumed = compare_batch(left, right, include_risks, cross_groups)
+        except ValueError as exc:
+            raise ValueError(f"GPT-5: {stage}, запрос {done + 1}/{total}: {exc}") from exc
+        add_usage(usage, consumed)
+        done += 1
+        if include_risks:
+            for risk in output.risks:
+                ids = set(risk.source_ids)
+                if cross_groups and not all(ids.intersection(group) for group in cross_groups):
+                    continue
+                key = (risk.kind, frozenset(ids))
+                previous = risks.get(key)
+                rank = {"low": 0, "medium": 1, "high": 2}
+                if previous is None or rank[risk.severity] > rank[previous.severity]:
+                    risks[key] = risk.model_copy(
+                        update={"source_ids": list(dict.fromkeys(risk.source_ids))}
+                    )
+        return output
+
+    # Cartesian coverage: a successor can occur in ANY after part, not just
+    # the equally numbered part. Only declare a loss after all have been checked.
+    for index, left in enumerate(before_parts):
+        for right in after_parts:
+            output = run(left, right, include_risks=index == 0)
+            for match in output.matches:
+                links[match.before_id].extend(match.after_ids)
+                if match.after_ids:
+                    reasons[match.before_id].append(match.reason)
+                else:
+                    unmatched_reasons[match.before_id] = match.reason
+
+    # Internal risks were checked above. Every pair of after parts is also
+    # inspected, so a chunk boundary cannot hide a pairwise overlap/conflict.
+    for index, left in enumerate(after_parts):
+        for right in after_parts[index + 1 :]:
+            run([], left + right, cross_groups=[[s["id"] for s in left], [s["id"] for s in right]])
+
+    matches = [
+        Match(
+            before_id=s["id"],
+            after_ids=list(dict.fromkeys(links[s["id"]])),
+            reason=" ".join(dict.fromkeys(reasons[s["id"]]))
+            or (
+                unmatched_reasons.get(s["id"], "")
+                if len(after_parts) == 1
+                else "Преемник не найден после проверки всех частей документа «после»."
+            ),
+        )
+        for s in before
+    ]
+    progress(80, "Сопоставление и проверка рисков завершены")
+    return Comparison(matches=matches, risks=list(risks.values())), usage

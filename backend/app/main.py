@@ -69,11 +69,15 @@ def run_analysis(project_id):
         progress(10, "Чтение и проверка источников")
         usage = {"input_tokens": 0, "output_tokens": 0}
         for index, document in enumerate(documents):
-            progress(
-                10 + int(18 * index / len(documents)),
-                f"GPT-5: извлечение функций · {index + 1}/{len(documents)}",
-            )
-            consumed = ai.extract_functions(document)
+
+            def extraction_progress(done, total):
+                progress(
+                    10 + int(18 * (index + done / max(total, 1)) / len(documents)),
+                    f"GPT-5: документ {index + 1}/{len(documents)} · "
+                    f"извлечение функций, часть {min(done + 1, total)}/{total}",
+                )
+
+            consumed = ai.extract_functions(document, progress=extraction_progress)
             for key in usage:
                 usage[key] += consumed.get(key, 0)
         result = analyze(documents, progress)
@@ -116,6 +120,14 @@ def run_analysis(project_id):
             )
 
 
+def example_document(phase):
+    """One complete document per phase, with the original department headings."""
+    return "\n\n".join(
+        path.read_text(encoding="utf-8-sig").strip()
+        for path in sorted((EXAMPLES / phase).glob("*.txt"))
+    ).encode("utf-8")
+
+
 def create_demo():
     project_id = uid()
     with db() as conn:
@@ -129,25 +141,23 @@ def create_demo():
             ),
         )
         for phase in ("before", "after"):
-            for path in sorted((EXAMPLES / phase).glob("*.txt")):
-                content = path.read_bytes()
-                segments, warnings = extract(path.name, content)
-                department = next(s["department"] for s in segments if s["is_function"])
-                filename = f"{department} — {'до' if phase == 'before' else 'после'}.txt"
-                conn.execute(
-                    "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?)",
-                    (
-                        uid(),
-                        project_id,
-                        filename,
-                        phase,
-                        len(content),
-                        now(),
-                        pack(segments),
-                        pack(warnings),
-                        content,
-                    ),
-                )
+            content = example_document(phase)
+            filename = f"{'До' if phase == 'before' else 'После'} реорганизации.txt"
+            segments, warnings = extract(filename, content)
+            conn.execute(
+                "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?)",
+                (
+                    uid(),
+                    project_id,
+                    filename,
+                    phase,
+                    len(content),
+                    now(),
+                    pack(segments),
+                    pack(warnings),
+                    content,
+                ),
+            )
     return project_id
 
 
@@ -246,6 +256,7 @@ async def upload(
     project_id: str,
     phase: Literal["before", "after"] = Form(...),
     file: UploadFile = File(...),
+    replace_document_id: str | None = Form(None),
 ):
     content = await file.read(MAX_BYTES + 1)
     filename = Path((file.filename or "document").replace("\\", "/")).name[:200]
@@ -256,13 +267,18 @@ async def upload(
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         editable(conn, project_id)
-        if (
-            conn.execute(
-                "SELECT COUNT(*) FROM documents WHERE project_id=?", (project_id,)
-            ).fetchone()[0]
-            >= 40
-        ):
-            raise HTTPException(422, "Допускается до 40 документов на проект")
+        existing = conn.execute(
+            "SELECT id FROM documents WHERE project_id=? AND phase=?", (project_id, phase)
+        ).fetchall()
+        if replace_document_id is not None:
+            if len(existing) != 1 or existing[0]["id"] != replace_document_id:
+                raise HTTPException(409, "Документы изменились. Обновите страницу перед заменой.")
+            # Only remove the old file after parsing succeeds, in the same transaction.
+            conn.execute("DELETE FROM documents WHERE id=?", (replace_document_id,))
+        elif existing:
+            raise HTTPException(
+                409, "В каждом блоке можно хранить только один файл. Используйте «Заменить файл»."
+            )
         document_id = uid()
         conn.execute(
             "INSERT INTO documents VALUES (?,?,?,?,?,?,?,?,?)",
@@ -356,15 +372,16 @@ def start_analysis(project_id: str, payload: AnalyzeInput, background_tasks: Bac
     with db() as conn:
         conn.execute("BEGIN IMMEDIATE")
         editable(conn, project_id)
-        phases = {
-            r[0]
+        counts = {
+            r[0]: r[1]
             for r in conn.execute(
-                "SELECT DISTINCT phase FROM documents WHERE project_id=?", (project_id,)
+                "SELECT phase, COUNT(*) FROM documents WHERE project_id=? GROUP BY phase",
+                (project_id,),
             )
         }
-        if phases != {"before", "after"}:
+        if counts != {"before": 1, "after": 1}:
             raise HTTPException(
-                422, "Загрузите хотя бы один документ в каждый комплект: «до» и «после»"
+                422, "Для анализа оставьте ровно один файл в блоке «До» и один в блоке «После»."
             )
         conn.execute(
             "UPDATE projects SET status='running',progress=1,stage='Подготовка анализа',error=NULL WHERE id=?",
@@ -425,8 +442,8 @@ def export(project_id: str, format: Literal["html", "md", "csv"] = "html"):
 def examples():
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
-        for path in EXAMPLES.glob("*/*.txt"):
-            archive.write(path, str(path.relative_to(EXAMPLES)))
+        for phase in ("before", "after"):
+            archive.writestr(f"{phase}.txt", example_document(phase))
     return Response(
         buffer.getvalue(),
         media_type="application/zip",

@@ -9,6 +9,7 @@ from pypdf import PdfWriter
 from app import ai
 from app.main import app
 from app.parser import extract
+from app.storage import db
 
 
 @pytest.fixture
@@ -28,7 +29,10 @@ def test_demo_end_to_end_and_sources(client, mock_gpt):
     assert project["status"] == "completed"
     result = project["result"]
     assert result["engine"] == "GPT · gpt-5"
-    assert result["usage"] == {"input_tokens": 100, "output_tokens": 100, "total_tokens": 200}
+    assert result["usage"] == {"input_tokens": 30, "output_tokens": 30, "total_tokens": 60}
+    assert len(project["documents"]) == 2
+    assert result["stats"]["before_functions"] == 17
+    assert result["stats"]["after_functions"] == 18
     assert result["stats"]["lost"] == 2
     assert result["stats"]["duplications"] == 2
     assert result["stats"]["conflicts"] == 1
@@ -84,6 +88,74 @@ def test_upload_analyze_edit_invalidates(client, mock_gpt):
     assert client.delete(f"/api/documents/{document['id']}").status_code == 204
 
 
+def test_large_files_end_to_end_without_old_gpt_limits(client, mock_gpt, monkeypatch):
+    project = client.post("/api/projects", json={"name": "Большая организация"}).json()
+    path = f"/api/projects/{project['id']}"
+    lines = [
+        f"{i}. Ведение реестра направления {i}. "
+        + "Подготовка сведений для ответственных сотрудников. " * 6
+        for i in range(1, 641)
+    ]
+    content = ("Подразделение: Отдел контроля\n" + "\n".join(lines)).encode()
+    assert len(content.decode()) > 160_000
+    for phase in ("before", "after"):
+        uploaded = client.post(
+            path + "/documents", data={"phase": phase}, files={"file": (f"{phase}.txt", content)}
+        )
+        assert uploaded.status_code == 201
+
+    original = ai.request
+    calls = []
+
+    def respond(schema, instruction, payload):
+        calls.append(len(payload.get("segments", [])))
+        return original(schema, instruction, payload)
+
+    monkeypatch.setattr(ai, "request", respond)
+    assert client.post(path + "/analyze", json={}).status_code == 202
+    saved = client.get(path).json()
+    assert saved["status"] == "completed", saved.get("error")
+    result = saved["result"]
+    assert result["stats"]["before_functions"] == 640
+    assert result["stats"]["after_functions"] == 640
+    assert result["stats"]["retained"] == 640
+    assert result["stats"]["lost"] == 0
+    assert result["usage"] == {
+        "input_tokens": len(calls) * 10,
+        "output_tokens": len(calls) * 10,
+        "total_tokens": len(calls) * 20,
+    }
+    assert sum(calls) == 2 * 641
+    assert len(saved["runs"]) == 1 and len(result["mapping"]) == 640
+    for document in saved["documents"]:
+        assert client.get(f"/api/documents/{document['id']}/download").content == content
+
+
+def test_late_batch_failure_does_not_save_partial_result(client, mock_gpt, monkeypatch):
+    project = client.post("/api/projects/demo").json()
+    path = f"/api/projects/{project['id']}"
+    client.post(path + "/analyze", json={})
+    previous = client.get(path).json()
+    monkeypatch.setattr(ai, "BEFORE_BATCH_SIZE", 5)
+    original = ai.request
+    calls = []
+
+    def respond(schema, instruction, payload):
+        if "before" in payload:
+            calls.append(1)
+            if len(calls) == 2:
+                raise ValueError("Контрольная ошибка части")
+        return original(schema, instruction, payload)
+
+    monkeypatch.setattr(ai, "request", respond)
+    assert client.post(path + "/analyze", json={}).status_code == 202
+    failed = client.get(path).json()
+    assert failed["status"] == "failed"
+    assert "запрос 2/4" in failed["error"]
+    assert failed["result"] == previous["result"]
+    assert len(failed["runs"]) == len(previous["runs"])
+
+
 def test_errors_and_gpt_configuration(client):
     assert client.get("/api/projects/absent").status_code == 404
     assert client.post("/api/projects", json={"name": " "}).status_code == 422
@@ -100,6 +172,84 @@ def test_errors_and_gpt_configuration(client):
     )
     assert client.get(path + "/export").status_code == 409
     assert client.get("/api/health").json()["gpt_configured"] is False
+
+
+def test_single_slot_upload_and_atomic_replacement(client, mock_gpt):
+    project = client.post("/api/projects/demo").json()
+    path = f"/api/projects/{project['id']}"
+    client.post(path + "/analyze", json={})
+    original = client.get(path).json()
+    before = next(d for d in original["documents"] if d["phase"] == "before")
+    original_bytes = client.get(f"/api/documents/{before['id']}/download").content
+    content = "Подразделение: Отдел закупок\n1. Ведение реестра договоров.".encode()
+    duplicate = client.post(
+        path + "/documents", data={"phase": "before"}, files={"file": ("new.txt", content)}
+    )
+    assert duplicate.status_code == 409
+    # A broken replacement must leave both the original and its analysis intact.
+    invalid = client.post(
+        path + "/documents",
+        data={"phase": "before", "replace_document_id": before["id"]},
+        files={"file": ("broken.pdf", b"not a pdf")},
+    )
+    assert invalid.status_code == 422
+    unchanged = client.get(path).json()
+    assert unchanged["revision"] == original["revision"]
+    assert unchanged["result"]["id"] == original["result"]["id"]
+    assert client.get(f"/api/documents/{before['id']}/download").content == original_bytes
+    # A stale ID or an ID from the other side must never overwrite the selected slot.
+    after = next(d for d in original["documents"] if d["phase"] == "after")
+    for invalid_id in ("missing", after["id"]):
+        response = client.post(
+            path + "/documents",
+            data={"phase": "before", "replace_document_id": invalid_id},
+            files={"file": ("new.txt", content)},
+        )
+        assert response.status_code == 409
+    replaced = client.post(
+        path + "/documents",
+        data={"phase": "before", "replace_document_id": before["id"]},
+        files={"file": ("new.txt", content)},
+    )
+    assert replaced.status_code == 201
+    assert replaced.json()["id"] != before["id"]
+    saved = client.get(path).json()
+    assert len(saved["documents"]) == 2
+    assert saved["result"] is None and len(saved["runs"]) == 1
+    assert saved["revision"] == original["revision"] + 1
+    assert client.get(f"/api/documents/{after['id']}/download").status_code == 200
+    assert client.get(f"/api/documents/{replaced.json()['id']}/download").content == content
+    # Two tabs replacing the same file cannot overwrite the first successful replacement.
+    stale = client.post(
+        path + "/documents",
+        data={"phase": "before", "replace_document_id": before["id"]},
+        files={"file": ("stale.txt", content)},
+    )
+    assert stale.status_code == 409
+
+
+def test_legacy_documents_preserved_and_analysis_requires_pair(client, mock_gpt):
+    project = client.post("/api/projects/demo").json()
+    path = f"/api/projects/{project['id']}"
+    with db() as conn:
+        conn.execute(
+            "INSERT INTO documents SELECT 'legacy',project_id,name,phase,size,created_at,segments,warnings,content "
+            "FROM documents WHERE project_id=? AND phase='before'",
+            (project["id"],),
+        )
+    assert client.post(path + "/analyze", json={}).status_code == 422
+    assert len(client.get(path).json()["documents"]) == 3
+    assert client.get("/api/documents/legacy/download").status_code == 200
+    assert client.delete("/api/documents/legacy").status_code == 204
+    assert client.post(path + "/analyze", json={}).status_code == 202
+
+
+def test_demo_download_is_a_pair(client):
+    archive = zipfile.ZipFile(io.BytesIO(client.get("/api/examples").content))
+    assert set(archive.namelist()) == {"before.txt", "after.txt"}
+    for phase, count in (("before", 17), ("after", 18)):
+        segments, _ = extract(f"{phase}.txt", archive.read(f"{phase}.txt"))
+        assert sum(s["is_function"] for s in segments) == count
 
 
 def test_failed_gpt_run_keeps_previous_result_without_fallback(client, mock_gpt, monkeypatch):

@@ -58,7 +58,7 @@ def test_ai_match_overrides_lexical_similarity(monkeypatch):
     monkeypatch.setattr(
         ai,
         "compare",
-        lambda before, after: (
+        lambda before, after, **kwargs: (
             ai.Comparison(
                 matches=[
                     ai.Match(
@@ -91,7 +91,7 @@ def test_ai_explicit_no_match_is_not_overridden_by_local_algorithm(monkeypatch):
     monkeypatch.setattr(
         ai,
         "compare",
-        lambda before, after: (
+        lambda before, after, **kwargs: (
             ai.Comparison(
                 matches=[
                     ai.Match(

@@ -3,13 +3,13 @@ import { ArrowRight, Check, ChevronRight, Download, FileText, LoaderCircle, X } 
 import type { Source, View } from '../types'
 
 export const labels: Record<View, string> = {
-  overview: 'Обзор анализа',
+  overview: 'Обзор',
   documents: 'Документы',
-  comparison: 'Сопоставление функций',
-  structure: 'Структура организации',
-  findings: 'Риски и замечания',
+  comparison: 'Сравнение функций',
+  structure: 'Подразделения',
+  findings: 'Проверка замечаний',
   report: 'Заключение',
-  settings: 'Настройки и методология',
+  settings: 'Настройки',
 }
 export const statusLabels = {
   retained: 'Сохранена',
@@ -199,8 +199,12 @@ export function SectionHead({
 export function Steps({ current }: { current: number }) {
   return (
     <div className="steps">
-      {['Загрузите документы', 'Запустите анализ', 'Проверьте выводы'].map((s, i) => (
-        <div className={i < current ? 'done' : i === current ? 'current' : ''} key={s}>
+      {['Два файла', 'Анализ', 'Результаты'].map((s, i) => (
+        <div
+          className={i < current ? 'done' : i === current ? 'current' : ''}
+          key={s}
+          aria-current={i === current ? 'step' : undefined}
+        >
           <span>{i < current ? <Check size={13} /> : i + 1}</span>
           {s}
           {i < 2 && <ChevronRight size={15} />}

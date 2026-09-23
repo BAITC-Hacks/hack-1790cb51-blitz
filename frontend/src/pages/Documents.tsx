@@ -1,269 +1,390 @@
 import { useRef, useState, type DragEvent } from 'react'
-import { CheckCircle2, Download, FileText, Plus, Trash2, UploadCloud } from 'lucide-react'
+import {
+  ArrowRight,
+  CheckCircle2,
+  Download,
+  FileText,
+  RefreshCw,
+  Trash2,
+  UploadCloud,
+} from 'lucide-react'
 import { api, bytes } from '../api'
 import { useWorkspace } from '../context'
 import type { Document, Phase } from '../types'
-import { Badge, Empty, Modal, PageTitle, Spinner, Steps } from '../components/UI'
+import { Modal, PageTitle, Spinner, Steps } from '../components/UI'
 
 export default function Documents() {
-  const { project, reload, notify, openDocument } = useWorkspace()
+  const { project, health, reload, notify, openDocument, openAnalysis, navigate } = useWorkspace()
   const [busy, setBusy] = useState(false)
+  const inFlight = useRef(false)
   const [uploadMessage, setUploadMessage] = useState('')
   const [dragging, setDragging] = useState<Phase | null>(null)
+  const [errors, setErrors] = useState<Partial<Record<Phase, string>>>({})
   const [deleting, setDeleting] = useState<Document | null>(null)
-  const [filter, setFilter] = useState<'all' | Phase>('all')
-  const beforeRef = useRef<HTMLInputElement>(null),
-    afterRef = useRef<HTMLInputElement>(null)
+  const [replacement, setReplacement] = useState<{ file: File; document: Document } | null>(null)
+  const beforeRef = useRef<HTMLInputElement>(null)
+  const afterRef = useRef<HTMLInputElement>(null)
   const disabled = busy || project.status === 'running'
-  async function upload(files: FileList | File[] | null, phase: Phase) {
-    if (!files || disabled) return
+  const phases = ['before', 'after'] as const
+  const ready = phases.every(
+    (phase) => project.documents.filter((d) => d.phase === phase).length === 1,
+  )
+  const legacy = phases.some(
+    (phase) => project.documents.filter((d) => d.phase === phase).length > 1,
+  )
+  const errorFor = (phase: Phase, message: string) =>
+    setErrors((items) => ({ ...items, [phase]: message }))
+
+  async function upload(file: File, phase: Phase, replaceId?: string) {
+    if (inFlight.current || project.status === 'running') return
+    inFlight.current = true
     setBusy(true)
-    let count = 0
-    for (const file of Array.from(files)) {
-      setUploadMessage(`Загружаем ${file.name}`)
-      const body = new FormData()
-      body.append('file', file)
-      body.append('phase', phase)
-      try {
-        await api(`/projects/${project.id}/documents`, { method: 'POST', body })
-        count++
-      } catch (error) {
-        notify(`${file.name}: ${(error as Error).message}`, true)
-      }
-    }
+    errorFor(phase, '')
+    setUploadMessage(`Загружаем ${file.name}…`)
+    const body = new FormData()
+    body.append('file', file)
+    body.append('phase', phase)
+    if (replaceId) body.append('replace_document_id', replaceId)
     try {
+      await api(`/projects/${project.id}/documents`, { method: 'POST', body })
+      setReplacement(null)
       await reload()
+      notify(replaceId ? 'Файл заменён. Для новых данных запустите анализ.' : 'Файл загружен')
     } catch (error) {
-      notify((error as Error).message, true)
+      errorFor(phase, (error as Error).message)
+      setReplacement(null)
     } finally {
+      inFlight.current = false
       setBusy(false)
       setUploadMessage('')
     }
-    if (count) notify(`Загружено документов: ${count}. Комплект готов к проверке.`)
   }
+
+  function select(files: FileList | File[] | null, phase: Phase) {
+    if (!files?.length || disabled || inFlight.current) return
+    if (files.length !== 1) {
+      errorFor(phase, 'Выберите только один файл. Ничего не загружено.')
+      return
+    }
+    const documents = project.documents.filter((d) => d.phase === phase)
+    if (documents.length > 1) {
+      errorFor(phase, 'Сначала оставьте в этом блоке один файл. Старые документы доступны ниже.')
+      return
+    }
+    const file = files[0]
+    if (!/\.(docx|pdf|xlsx|txt|csv)$/i.test(file.name)) {
+      errorFor(phase, 'Поддерживаются DOCX, PDF, XLSX, TXT и CSV.')
+      return
+    }
+    if (!file.size || file.size > 10 * 1024 * 1024) {
+      errorFor(phase, 'Файл должен быть непустым и не превышать 10 МБ.')
+      return
+    }
+    errorFor(phase, '')
+    if (documents.length) setReplacement({ file, document: documents[0] })
+    else void upload(file, phase)
+  }
+
   async function remove() {
-    if (!deleting) return
+    if (!deleting || inFlight.current) return
+    inFlight.current = true
     setBusy(true)
     try {
       await api(`/documents/${deleting.id}`, { method: 'DELETE' })
-      await reload()
+      errorFor(deleting.phase, '')
       setDeleting(null)
-      notify('Документ удалён. Запустите анализ обновлённого комплекта.')
+      await reload()
+      notify('Файл удалён из проекта')
     } catch (e) {
       notify((e as Error).message, true)
     } finally {
+      inFlight.current = false
       setBusy(false)
     }
   }
+
   function drop(e: DragEvent, phase: Phase) {
     e.preventDefault()
     setDragging(null)
-    void upload(e.dataTransfer.files, phase)
+    select(e.dataTransfer.files, phase)
   }
-  const documents = project.documents.filter((d) => filter === 'all' || d.phase === filter)
+
   return (
-    <>
+    <div className="documents-workspace">
       <PageTitle
-        title="Документы проекта"
-        description="Два комплекта документов — одна полная картина изменений."
-      >
-        <a className="button secondary" href="/api/examples">
-          <Download size={16} />
-          Пример комплекта
-        </a>
-      </PageTitle>
-      <Steps
-        current={
-          project.result
-            ? 2
-            : project.documents.some((d) => d.phase === 'before') &&
-                project.documents.some((d) => d.phase === 'after')
-              ? 1
-              : 0
-        }
+        title="Сравните два документа"
+        description="Добавьте один файл до реорганизации и один после."
       />
+      <Steps current={project.result ? 2 : ready ? 1 : 0} />
       <div className="upload-grid">
-        {(['before', 'after'] as Phase[]).map((phase) => (
-          <div
-            className={`upload-card ${dragging === phase ? 'dragging' : ''}`}
-            key={phase}
-            onDragOver={(e) => {
-              e.preventDefault()
-              if (!disabled) setDragging(phase)
-            }}
-            onDragLeave={() => setDragging(null)}
-            onDrop={(e) => drop(e, phase)}
-          >
-            <div className="upload-card-top">
-              <span className={`phase-circle ${phase}`}>{phase === 'before' ? '01' : '02'}</span>
-              <div>
-                <h2>{phase === 'before' ? 'До реорганизации' : 'После реорганизации'}</h2>
-                <p>
-                  {phase === 'before'
-                    ? 'Действующая структура и функции'
-                    : 'Новая структура и распределение функций'}
-                </p>
-              </div>
-              <Badge type={phase}>
-                {project.documents.filter((d) => d.phase === phase).length} файлов
-              </Badge>
-            </div>
-            <button
-              className="dropzone"
-              disabled={disabled}
-              onClick={() => (phase === 'before' ? beforeRef : afterRef).current?.click()}
-            >
-              <UploadCloud size={28} />
-              <strong>Перетащите документы сюда</strong>
-              <span>
-                или <u>выберите на компьютере</u>
-              </span>
-              <small>DOCX, PDF, XLSX, TXT, CSV · до 10 МБ</small>
-            </button>
-            <input
-              ref={phase === 'before' ? beforeRef : afterRef}
-              type="file"
-              multiple
-              accept=".docx,.pdf,.xlsx,.txt,.csv"
-              hidden
-              onChange={(e) => {
-                void upload(e.target.files, phase)
-                e.currentTarget.value = ''
+        {phases.map((phase) => {
+          const documents = project.documents.filter((d) => d.phase === phase)
+          const label = phase === 'before' ? 'До' : 'После'
+          const inputRef = phase === 'before' ? beforeRef : afterRef
+          return (
+            <section
+              className={`upload-card document-slot ${dragging === phase ? 'dragging' : ''}`}
+              key={phase}
+              aria-labelledby={`slot-${phase}`}
+              aria-busy={busy}
+              onDragOver={(e) => {
+                e.preventDefault()
+                if (!disabled && documents.length <= 1) setDragging(phase)
               }}
-              aria-label={`Загрузить документы ${phase === 'before' ? 'до' : 'после'}`}
-            />
-          </div>
-        ))}
+              onDragLeave={(e) => {
+                if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(null)
+              }}
+              onDrop={(e) => drop(e, phase)}
+            >
+              <div className="slot-heading">
+                <div>
+                  <h2 id={`slot-${phase}`}>{label} реорганизации</h2>
+                  <p>
+                    {phase === 'before'
+                      ? 'Исходные обязанности и подразделения'
+                      : 'Обязанности и подразделения после изменений'}
+                  </p>
+                </div>
+                {documents.length === 1 && <CheckCircle2 size={20} aria-label="Файл загружен" />}
+              </div>
+              {documents.length > 1 && (
+                <p className="slot-warning">
+                  В старом проекте здесь {documents.length} файла. Скачайте нужные копии и оставьте
+                  один для анализа.
+                </p>
+              )}
+              {documents.length ? (
+                documents.map((document) => (
+                  <div className="slot-file" key={document.id}>
+                    <button className="slot-file-name" onClick={() => openDocument(document.id)}>
+                      <FileText size={24} />
+                      <span>
+                        <strong>{document.name}</strong>
+                        <small>
+                          {document.name.split('.').pop()?.toUpperCase()} · {bytes(document.size)}
+                        </small>
+                      </span>
+                    </button>
+                    <p className="slot-file-meta">
+                      Распознано функций: {document.function_count} · подразделений:{' '}
+                      {document.departments.length}
+                    </p>
+                    {document.warnings.length > 0 && (
+                      <details className="slot-warnings">
+                        <summary>Что проверить в документе ({document.warnings.length})</summary>
+                        <ul>
+                          {document.warnings.map((warning, index) => (
+                            <li key={index}>{warning}</li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
+                    <div className="slot-actions">
+                      <button
+                        className="button secondary"
+                        onClick={() => openDocument(document.id)}
+                      >
+                        Проверить текст
+                      </button>
+                      {documents.length === 1 && (
+                        <button
+                          className="text-button"
+                          disabled={disabled}
+                          onClick={() => inputRef.current?.click()}
+                        >
+                          <RefreshCw size={15} />
+                          Заменить файл
+                        </button>
+                      )}
+                      <a
+                        className="icon-button"
+                        href={`/api/documents/${document.id}/download`}
+                        aria-label={`Скачать ${document.name}`}
+                        title="Скачать оригинал"
+                      >
+                        <Download size={17} />
+                      </a>
+                      <button
+                        className="icon-button danger"
+                        disabled={disabled}
+                        onClick={() => setDeleting(document)}
+                        aria-label={`Удалить ${document.name}`}
+                        title="Удалить из проекта"
+                      >
+                        <Trash2 size={17} />
+                      </button>
+                    </div>
+                  </div>
+                ))
+              ) : (
+                <button
+                  className="dropzone"
+                  disabled={disabled}
+                  onClick={() => inputRef.current?.click()}
+                  aria-label={`Выбрать файл ${label.toLowerCase()}`}
+                >
+                  <UploadCloud size={28} />
+                  <strong>Выбрать файл</strong>
+                  <span>или перетащить сюда</span>
+                  <small>Один документ · до 10 МБ</small>
+                </button>
+              )}
+              <input
+                ref={inputRef}
+                type="file"
+                accept=".docx,.pdf,.xlsx,.txt,.csv"
+                hidden
+                disabled={disabled || documents.length > 1}
+                onChange={(e) => {
+                  select(e.target.files, phase)
+                  e.currentTarget.value = ''
+                }}
+                aria-label={`Загрузить файл ${label.toLowerCase()}`}
+              />
+              {errors[phase] && (
+                <p className="slot-error" role="alert">
+                  {errors[phase]}
+                </p>
+              )}
+            </section>
+          )
+        })}
       </div>
+      <p className="document-formats">
+        DOCX, PDF с текстом, XLSX, TXT или CSV. PDF-сканы и файлы с паролем не поддерживаются.
+      </p>
       {busy && (
-        <div className="inline-progress" role="status">
+        <p className="inline-progress" role="status">
           <Spinner />
           {uploadMessage || 'Сохраняем изменения…'}
-        </div>
+        </p>
       )}
-      <div className="info-strip">
-        <CheckCircle2 size={18} />
-        <span>
-          Текст и ссылки на пункты сохраняются автоматически. Проверьте распознанные функции в
-          просмотре документа.
-        </span>
-      </div>
-      <section className="panel">
-        <div className="table-toolbar">
+      <section className="next-action" aria-label="Следующий шаг">
+        <div>
           <h2>
-            Библиотека документов <span className="counter">{project.documents.length}</span>
+            {project.status === 'running'
+              ? 'Анализ выполняется'
+              : legacy
+                ? 'Оставьте по одному файлу'
+                : ready
+                  ? 'Документы загружены'
+                  : 'Добавьте оба документа'}
           </h2>
-          <div className="segmented">
-            {(['all', 'before', 'after'] as const).map((f) => (
-              <button key={f} className={filter === f ? 'active' : ''} onClick={() => setFilter(f)}>
-                {f === 'all' ? 'Все' : f === 'before' ? 'До' : 'После'}
-              </button>
-            ))}
-          </div>
+          <p>
+            {project.status === 'running'
+              ? 'Результаты появятся автоматически.'
+              : legacy
+                ? 'Старые файлы сохранены. Удалите лишние или создайте новый проект.'
+                : !ready
+                  ? 'После загрузки двух файлов станет доступен анализ.'
+                  : !health?.gpt_configured
+                    ? 'Для запуска подключите GPT в настройках.'
+                    : project.result
+                      ? 'Откройте результаты или запустите анализ повторно.'
+                      : 'Проверьте текст, затем запустите сравнение функций.'}
+          </p>
         </div>
-        {!documents.length ? (
-          <Empty
-            title="В этом комплекте пока нет документов"
-            text="Добавьте положения о подразделениях, инструкции или таблицу функций."
-            action={
-              <button
-                className="button secondary"
-                onClick={() => beforeRef.current?.click()}
-                disabled={disabled}
-              >
-                <Plus size={16} />
-                Добавить документ
-              </button>
-            }
-          />
-        ) : (
-          <div className="table-scroll">
-            <table className="document-table">
-              <thead>
-                <tr>
-                  <th>Документ</th>
-                  <th>Комплект</th>
-                  <th>Функции</th>
-                  <th>Статус</th>
-                  <th>
-                    <span className="sr-only">Действия</span>
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {documents.map((d) => (
-                  <tr key={d.id}>
-                    <td>
-                      <button className="document-name" onClick={() => openDocument(d.id)}>
-                        <span className="file-icon">
-                          <FileText size={20} />
-                        </span>
-                        <span>
-                          <strong>{d.name}</strong>
-                          <small>
-                            {d.name.split('.').pop()?.toUpperCase()} · {bytes(d.size)}
-                          </small>
-                        </span>
-                      </button>
-                    </td>
-                    <td>
-                      <Badge type={d.phase}>{d.phase === 'before' ? 'До' : 'После'}</Badge>
-                    </td>
-                    <td>{d.function_count}</td>
-                    <td>
-                      <span className={`doc-status ${d.warnings.length ? 'warning' : ''}`}>
-                        <span />
-                        {d.warnings.length ? 'Проверьте разметку' : 'Распознан'}
-                      </span>
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        <a
-                          className="icon-button"
-                          href={`/api/documents/${d.id}/download`}
-                          aria-label={`Скачать ${d.name}`}
-                        >
-                          <Download size={16} />
-                        </a>
-                        <button
-                          className="icon-button danger"
-                          onClick={() => setDeleting(d)}
-                          disabled={disabled}
-                          aria-label={`Удалить ${d.name}`}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+        <div className="next-action-buttons">
+          {project.result && (
+            <button className="button secondary" onClick={() => navigate('overview')}>
+              Результаты
+              <ArrowRight size={16} />
+            </button>
+          )}
+          {ready && !health?.gpt_configured ? (
+            <button className="button primary" onClick={() => navigate('settings')}>
+              Открыть настройки
+            </button>
+          ) : (
+            <button className="button primary" disabled={!ready || disabled} onClick={openAnalysis}>
+              {project.status === 'running' ? <Spinner /> : null}
+              {project.status === 'running'
+                ? 'Анализируем…'
+                : project.result
+                  ? 'Повторить анализ'
+                  : 'Запустить анализ'}
+            </button>
+          )}
+        </div>
       </section>
-      {deleting && (
-        <Modal title="Удалить документ?" close={() => setDeleting(null)}>
+      <details className="document-help">
+        <summary>Какие документы подходят?</summary>
+        <p>
+          Положение, инструкция или таблица с функциями. В одном файле могут быть несколько
+          подразделений — укажите их названия перед соответствующими обязанностями.
+        </p>
+        <a className="text-button" href="/api/examples">
+          <Download size={15} />
+          Скачать пример: два файла «до» и «после»
+        </a>
+      </details>
+      {replacement && (
+        <Modal
+          title="Заменить файл?"
+          close={() => {
+            if (!busy) setReplacement(null)
+          }}
+        >
           <div className="modal-body">
             <p>
-              «{deleting.name}» будет удалён из проекта. Текущие результаты станут неактуальны;
-              предыдущий запуск останется в истории.
+              «{replacement.document.name}» будет заменён на «{replacement.file.name}».
+            </p>
+            <p>
+              Анализ потребуется запустить заново. Предыдущие результаты останутся в истории. Если
+              новый файл не прочитается, прежний сохранится.
             </p>
             <div className="modal-actions">
-              <button className="button secondary" onClick={() => setDeleting(null)}>
+              <button
+                className="button secondary"
+                disabled={busy}
+                onClick={() => setReplacement(null)}
+              >
                 Отмена
               </button>
               <button
-                className="button danger-button"
-                disabled={busy}
-                onClick={() => void remove()}
+                className="button primary"
+                disabled={disabled}
+                onClick={() =>
+                  void upload(replacement.file, replacement.document.phase, replacement.document.id)
+                }
               >
-                {busy ? <Spinner /> : <Trash2 size={16} />}Удалить документ
+                {busy ? <Spinner /> : <RefreshCw size={16} />}Заменить
               </button>
             </div>
           </div>
         </Modal>
       )}
-    </>
+      {deleting && (
+        <Modal
+          title="Удалить файл из проекта?"
+          close={() => {
+            if (!busy) setDeleting(null)
+          }}
+        >
+          <div className="modal-body">
+            <p>
+              «{deleting.name}» будет удалён из проекта. Оригинал на компьютере не изменится.
+              Предыдущие результаты анализа останутся в истории.
+            </p>
+            <div className="modal-actions">
+              <button
+                className="button secondary"
+                disabled={busy}
+                onClick={() => setDeleting(null)}
+              >
+                Отмена
+              </button>
+              <button
+                className="button danger-button"
+                disabled={disabled}
+                onClick={() => void remove()}
+              >
+                {busy ? <Spinner /> : <Trash2 size={16} />}Удалить
+              </button>
+            </div>
+          </div>
+        </Modal>
+      )}
+    </div>
   )
 }

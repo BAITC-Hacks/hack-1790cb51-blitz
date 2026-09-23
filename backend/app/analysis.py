@@ -98,10 +98,8 @@ def analyze(documents, progress=lambda value, stage: None):
         raise ValueError(
             "В каждом комплекте нужна хотя бы одна распознанная функция. Уточните разметку документов."
         )
-    if len(before) + len(after) > 600:
-        raise ValueError("Прототип поддерживает до 600 функций за один анализ. Разделите проект.")
     progress(30, "Сопоставление функций")
-    ai_result, usage = ai.compare(before, after)
+    ai_result, usage = ai.compare(before, after, progress=progress)
     links = {m.before_id: m.after_ids for m in ai_result.matches}
     reasons = {m.before_id: m.reason for m in ai_result.matches}
     engine = f"GPT · {ai.model_name()}"
@@ -124,16 +122,27 @@ def analyze(documents, progress=lambda value, stage: None):
             }
         )
 
+    source_map = {s["id"]: s for s in after}
     for old in before:
-        candidates = sorted(
-            [(new, similarity(old["text"], new["text"])) for new in after],
+        # Matched rows need scores only for actual GPT links, not every possible
+        # pair. This avoids an unnecessary quadratic local pass on large files.
+        matches = sorted(
+            [
+                (source_map[id], similarity(old["text"], source_map[id]["text"]))
+                for id in links[old["id"]]
+            ],
             key=lambda pair: pair[1],
             reverse=True,
         )
-        matches = [
-            (new, score) for new, score in candidates if new["id"] in links.get(old["id"], [])
-        ]
-        best = candidates[0] if candidates else (None, 0)
+        best = (
+            (None, 0)
+            if matches
+            else max(
+                ((new, similarity(old["text"], new["text"])) for new in after),
+                key=lambda pair: pair[1],
+                default=(None, 0),
+            )
+        )
         status = (
             "lost"
             if not matches
@@ -184,8 +193,7 @@ def analyze(documents, progress=lambda value, stage: None):
                 }
             )
 
-    progress(65, "Поиск пересечений и конфликтов")
-    source_map = {s["id"]: s for s in after}
+    progress(82, "Подготовка замечаний и источников")
     for risk in ai_result.risks:
         finding(
             risk.kind,
